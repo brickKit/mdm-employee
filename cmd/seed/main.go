@@ -76,6 +76,15 @@ func (c client) must(method, path string, body any) map[string]any {
 	return out
 }
 
+// confirm makes a confirmation at the authorization member (it answers 201).
+func (c client) confirm(body map[string]any) map[string]any {
+	code, out := c.do("POST", "/api/authz/confirmations", body)
+	if code != 201 {
+		fail("confirmation %v: %d %v", body, code, out)
+	}
+	return out
+}
+
 // list reads every page of a list route.
 func (c client) list(path, key string) []map[string]any {
 	var all []map[string]any
@@ -223,6 +232,9 @@ func main() {
 				body["personal"] = map[string]any{"birth_date": fmt.Sprintf("19%02d-%02d-%02d", 70+i%30, i%12+1, i%27+1)}
 			}
 			e := c.must("POST", "/api/employee/employees", body)
+			if _, ok := e["id"].(string); !ok { // a 200 without the employee would panic below: say what came back
+				fail("hire %s answered %v", no, e)
+			}
 			byNo[no] = e
 			employees++
 			pos := reps[i%len(reps)]
@@ -281,19 +293,23 @@ func main() {
 
 	// account links: the seed user asks, the authorization admin confirms
 	links := 0
+	// link answers the employee's link of the account: made now, or found (an ended one included: the account is not
+	// linked again)
 	link := func(user, no string) map[string]any {
-		account := accounts[user].Principal
-		if code, out := c.do("GET", "/api/employee/accounts/"+account+"/employee", nil); code == 200 {
-			if out["id"] != byNo[no]["id"] {
-				fail("%s is linked to another employee (%v), not %s", user, out["employee_no"], no)
+		account, emp := accounts[user].Principal, byNo[no]["id"].(string)
+		for _, l := range c.must("GET", "/api/employee/employees/"+emp+"/accounts", nil)["links"].([]any) {
+			if l.(map[string]any)["account"] == account {
+				return l.(map[string]any)
 			}
-			return nil
 		}
-		e := c.must("GET", "/api/employee/employees/"+byNo[no]["id"].(string), nil)
-		conf := admin.must("POST", "/api/authz/confirmations", map[string]any{"employee": e["id"], "account": account,
+		if code, out := c.do("GET", "/api/employee/accounts/"+account+"/employee", nil); code == 200 {
+			fail("%s is linked to another employee (%v), not %s", user, out["employee_no"], no)
+		}
+		e := c.must("GET", "/api/employee/employees/"+emp, nil)
+		conf := admin.confirm(map[string]any{"employee": e["id"], "account": account,
 			"action": "link", "employee_version": e["version"]})
 		links++
-		return c.must("POST", "/api/employee/employees/"+e["id"].(string)+"/accounts", map[string]any{"account": account,
+		return c.must("POST", "/api/employee/employees/"+emp+"/accounts", map[string]any{"account": account,
 			"version": e["version"], "confirmation": conf["id"]})
 	}
 	link("test.sales.cn", holderOf["CN01/SALES-EAST-SMB-REP"])
@@ -301,10 +317,10 @@ func main() {
 	link("test.sales.es", holderOf["ES01/SALES-NORTH-KA-REP"])
 	link("test.unit.admin.cn", holderOf["CN01/SALES-MGR"]) // the head of sales
 	link("test.mdm.admin", "CN01-E0150")
-	link("test.mdm.viewer", "CN01-E0150")                  // one person, two accounts
-	if l := link("test.revoked", "CN01-E0151"); l != nil { // a link that ended
+	link("test.mdm.viewer", "CN01-E0150")                                // one person, two accounts
+	if l := link("test.revoked", "CN01-E0151"); l["state"] == "active" { // a link that ended
 		e := c.must("GET", "/api/employee/employees/"+byNo["CN01-E0151"]["id"].(string), nil)
-		conf := admin.must("POST", "/api/authz/confirmations", map[string]any{"employee": e["id"], "account": l["account"],
+		conf := admin.confirm(map[string]any{"employee": e["id"], "account": l["account"],
 			"action": "unlink", "employee_version": e["version"]})
 		c.must("POST", "/api/employee/account-links/"+l["id"].(string)+"/end", map[string]any{"version": e["version"],
 			"confirmation": conf["id"]})

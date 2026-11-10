@@ -12,6 +12,7 @@
 | [`internal/`](internal/AGENTS.md) | 业务：下面的模块各一个包；模块之间的依赖表在它的 `AGENTS.md` |
 | [`itest/`](itest/AGENTS.md) | 集成测试，按业务流程分文件；它的 `AGENTS.md` 是测试索引 |
 | `employee/migrations/` | 表：员工、任职、账号关联 |
+| `cmd/seed/` | 种子（`make seed`）：角色与授予、三个法人的员工（CN01 超过一页）、岗位上的任职（兼任、调岗、预入职、离职）、测试账号的关联（一人两个账号、结束的关联）；关联由种子用户发起、授权管理员确认 |
 | `contract/` | 本组件发布的契约：`contract/openapi.yaml`、`contract/events/` |
 | `docs/design.md` | 设计 |
 

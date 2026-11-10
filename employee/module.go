@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	appointments "github.com/brickKit/mdm-employee/v3/internal/appointments"
 	core "github.com/brickKit/mdm-employee/v3/internal/core"
 	employees "github.com/brickKit/mdm-employee/v3/internal/employees"
 	orgview "github.com/brickKit/mdm-employee/v3/internal/orgview"
@@ -27,6 +28,7 @@ func New(rt *runtime.Runtime) (*Module, error) {
 	b := &core.Base{RT: rt, Ev: rt.Evidence}
 	v := orgview.New(b)
 	b.Org = v
+	b.Terminated = appointments.Ended(b)
 	return &Module{b: b, org: v}, nil
 }
 
@@ -41,6 +43,10 @@ func (m *Module) Subscriptions(s *events.Subscriptions) error {
 func (m *Module) Jobs(j *work.Jobs) error {
 	j.Add(work.Job{Name: employees.JobEffective, Kind: work.Singleton, Effect: work.Local, Interval: time.Minute,
 		MaxAttempts: work.Unlimited, Handle: m.job(employees.Effective)})
+	j.Add(work.Job{Name: appointments.JobEffective, Kind: work.Singleton, Effect: work.Local, Interval: time.Minute,
+		MaxAttempts: work.Unlimited, Handle: m.job(appointments.Effective)})
+	j.Add(work.Job{Name: core.JobEndOnRetirement, Kind: work.Queue, Effect: work.Local, MaxAttempts: work.Unlimited,
+		Handle: m.job(appointments.EndOnRetirement)})
 	j.Add(work.Job{Name: orgview.JobAlign, Kind: work.Singleton, Effect: work.Local, Interval: time.Hour,
 		MaxAttempts: work.Unlimited, Handle: m.org.Align})
 	j.Add(work.Job{Name: orgview.JobRepair, Kind: work.Queue, Effect: work.IdempotentExternal,
@@ -63,14 +69,14 @@ func (m *Module) Routes(r *httpx.Routes) error {
 	add("POST", "/api/employee/employees/:id/terminate", core.OpEmployeeEdit, h(employees.Terminate))
 	add("POST", "/api/employee/employees/:id/withdraw-termination", core.OpEmployeeEdit, h(employees.WithdrawTermination))
 	add("POST", "/api/employee/employees/:id/cancel-hire", core.OpEmployeeEdit, h(employees.CancelHire))
+	add("GET", "/api/employee/employees/:id/appointments", core.OpApptRead, h(appointments.ListAppointments))
+	add("POST", "/api/employee/employees/:id/appointments", core.OpApptEdit, h(appointments.Appoint))
+	add("POST", "/api/employee/employees/:id/transfer", core.OpApptEdit, h(appointments.Transfer))
+	add("GET", "/api/employee/appointments/:id", core.OpApptRead, h(appointments.GetAppointment))
+	add("PATCH", "/api/employee/appointments/:id", core.OpApptEdit, h(appointments.UpdateAppointment))
+	add("POST", "/api/employee/appointments/:id/end", core.OpApptEdit, h(appointments.EndAppointment))
+	add("GET", "/api/employee/positions/:id/holders", core.OpApptRead, h(appointments.Holders))
 	for _, u := range []struct{ method, path, op string }{
-		{"GET", "/api/employee/employees/:id/appointments", core.OpApptRead},
-		{"POST", "/api/employee/employees/:id/appointments", core.OpApptEdit},
-		{"POST", "/api/employee/employees/:id/transfer", core.OpApptEdit},
-		{"GET", "/api/employee/appointments/:id", core.OpApptRead},
-		{"PATCH", "/api/employee/appointments/:id", core.OpApptEdit},
-		{"POST", "/api/employee/appointments/:id/end", core.OpApptEdit},
-		{"GET", "/api/employee/positions/:id/holders", core.OpApptRead},
 		{"GET", "/api/employee/employees/:id/accounts", core.OpLinkRead},
 		{"POST", "/api/employee/employees/:id/accounts", core.OpLinkEdit},
 		{"POST", "/api/employee/account-links/:id/end", core.OpLinkEdit},

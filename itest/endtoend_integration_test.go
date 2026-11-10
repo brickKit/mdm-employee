@@ -62,13 +62,14 @@ type fixture struct {
 	// mdm/org's world: a legal entity in Madrid with two units and their positions, created by start
 	le, sales, ops, rep, clerk, head string
 	// employees the steps pass on
-	ana string
+	ana, eva string
 }
 
 func TestEmployeeEndToEnd(t *testing.T) {
 	fx := start(t)
 	fx.orgProjection()
 	fx.employees()
+	fx.appointments()
 }
 
 // start makes the world, the mdm/org stand-in and its stream, then migrates and runs the member.

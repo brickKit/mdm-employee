@@ -383,18 +383,18 @@ func Terminate(m *core.Base, c *httpx.Context) error {
 		d := in.TerminationDate
 		e.TerminationDate = &d
 		if d <= today {
-			return terminated(m, ctx, tx, e, d)
+			return terminated(m, ctx, tx, core.Principal(ctx), e, d)
 		}
 		return nil
 	}, map[string]any{"last_admin_warning": warn})
 }
 
 // terminated makes an employee terminated as of a date and ends what the termination ends beyond it.
-func terminated(m *core.Base, ctx context.Context, tx db.Tx, e *core.Employee, date string) error {
+func terminated(m *core.Base, ctx context.Context, tx db.Tx, actor string, e *core.Employee, date string) error {
 	reason := "terminated"
 	e.State, e.EndReason = "terminated", &reason
 	if m.Terminated != nil {
-		return m.Terminated(ctx, tx, e.ID, date)
+		return m.Terminated(ctx, tx, actor, e.ID, date)
 	}
 	return nil
 }
@@ -524,7 +524,7 @@ func effectiveIn(m *core.Base, ctx context.Context, le, today string) error {
 			case cur.State == "pre_hire" && cur.HireDate <= today:
 				next.State = "active"
 			case cur.State == "active" && cur.TerminationDate != nil && *cur.TerminationDate <= today:
-				if err := terminated(m, ctx, tx, &next, *cur.TerminationDate); err != nil {
+				if err := terminated(m, ctx, tx, jobActor, &next, *cur.TerminationDate); err != nil {
 					return err
 				}
 			default:

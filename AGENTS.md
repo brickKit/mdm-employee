@@ -19,13 +19,14 @@
 
 | 模块 | 负责 | 拥有的表 |
 | --- | --- | --- |
+| [`appointments`](internal/appointments/AGENTS.md) | 任职：任命、调岗、结束、持有人；同岗不重叠；离职、退役、到期时结束 | `appointment` |
 | [`employees`](internal/employees/AGENTS.md) | 员工：入职、修改、离职（今天或将来）、撤回、取消入职、列表；个人资料按可读字段遮蔽；到期作业 | `employee` |
 | [`orgview`](internal/orgview/AGENTS.md) | `mdm/org` 的投影（法人、部门、岗位）：事件、对齐、修复；退役时排结束任职 | `org_realign`（投影本身在 SDK 的表里） |
 | [`source`](internal/source/AGENTS.md) | 水位流的记录读取（三种记录，按身份与按身份顺序） | — |
 
 共用的：[`core`](internal/core/AGENTS.md)（名字与资源定义、校验、审计与事件的写法、记录的类型与读取、列表的共用部分、本版不做的路由）。
 
-（任职、账号关联、收紧的证据与重放随 C1 的 E3d–E3f 加入，见装配项目 `dev/rebuild/c1-employee-plan.md`。）
+（账号关联、收紧的证据与重放随 C1 的 E3e–E3f 加入，见装配项目 `dev/rebuild/c1-employee-plan.md`。）
 
 ## 构建与测试
 

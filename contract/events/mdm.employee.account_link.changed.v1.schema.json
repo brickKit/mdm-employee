@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://brickkit.dev/mdm-employee/events/mdm.employee.account_link.changed.v1.schema.json",
+  "title": "mdm.employee.account_link.changed.v1",
+  "description": "An account link's complete current state; the record ID is its UUIDv7. An account is linked to at most one employee at a time; an employee may have several accounts (security 02). Linking and ending are protected operations: the confirmations used travel here, and the authorization member marks each used when it applies this record. Also a record of the watermark stream's record read.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "employee_id", "account", "state", "confirmation", "end_confirmation", "linked_at", "ended_at", "version", "updated_at"],
+  "properties": {
+    "id": {"type": "string", "format": "uuid"},
+    "employee_id": {"type": "string", "format": "uuid"},
+    "account": {"type": "string", "minLength": 1, "description": "the account's platform principal (the identity member's)"},
+    "state": {"enum": ["active", "ended"]},
+    "confirmation": {"type": "string", "description": "the confirmation the link was made with (be.security.confirmation)"},
+    "end_confirmation": {"type": ["string", "null"], "description": "the confirmation the link was ended with; null while active (a termination leaves the link: the employee's state says the person left)"},
+    "linked_at": {"type": "string", "format": "date-time"},
+    "ended_at": {"type": ["string", "null"], "format": "date-time"},
+    "version": {"type": "integer", "minimum": 1},
+    "updated_at": {"type": "string", "format": "date-time"}
+  }
+}

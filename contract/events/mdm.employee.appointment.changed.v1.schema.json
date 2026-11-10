@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://brickkit.dev/mdm-employee/events/mdm.employee.appointment.changed.v1.schema.json",
+  "title": "mdm.employee.appointment.changed.v1",
+  "description": "An appointment's complete current state; the record ID is its UUIDv7. An appointment is a qualification instance that is never reused (security 04): a change of legal entity, unit or position ends it and makes a new one. Its start and end are this event's state changes. Also a record of the watermark stream's record read.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "employee_id", "legal_entity_id", "unit_id", "position_id", "start_date", "end_date", "state", "end_reason", "note", "version", "updated_at"],
+  "properties": {
+    "id": {"type": "string", "format": "uuid"},
+    "employee_id": {"type": "string", "format": "uuid"},
+    "legal_entity_id": {"type": "string", "format": "uuid"},
+    "unit_id": {"type": "string", "format": "uuid", "description": "the unit (mdm/org); its path is the org fact a grant bound to the appointment uses"},
+    "position_id": {"type": "string", "format": "uuid", "description": "the position (mdm/org), of that unit"},
+    "start_date": {"type": "string", "format": "date"},
+    "end_date": {"type": ["string", "null"], "format": "date", "description": "the last day; null: open"},
+    "state": {"enum": ["planned", "active", "ended"]},
+    "end_reason": {"enum": [null, "transfer", "termination", "position_retired", "unit_retired", "expired", "ended"]},
+    "note": {"type": "string", "description": "a display field, changed in place"},
+    "version": {"type": "integer", "minimum": 1},
+    "updated_at": {"type": "string", "format": "date-time"}
+  }
+}

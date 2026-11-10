@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://brickkit.dev/mdm-employee/events/mdm.employee.changed.v1.schema.json",
+  "title": "mdm.employee.changed.v1",
+  "description": "An employee's complete current state without the restricted personal data; the record ID is its UUIDv7. Also a record of the watermark stream's record read (P9.30). Dates are the legal entity's business dates.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "legal_entity_id", "employee_no", "name", "names", "state", "hire_date", "termination_date", "end_reason", "version", "updated_at"],
+  "properties": {
+    "id": {"type": "string", "format": "uuid"},
+    "legal_entity_id": {"type": "string", "format": "uuid", "description": "the employing legal entity (mdm/org)"},
+    "employee_no": {"type": "string", "pattern": "^[A-Z0-9][A-Z0-9_-]{0,31}$", "description": "unique within the legal entity"},
+    "name": {"type": "string", "minLength": 1},
+    "names": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}},
+    "state": {"enum": ["pre_hire", "active", "terminated"]},
+    "hire_date": {"type": "string", "format": "date"},
+    "termination_date": {"type": ["string", "null"], "format": "date", "description": "set by a termination, also one effective later (the employee stays active until then); null when none"},
+    "end_reason": {"enum": [null, "terminated", "cancelled"], "description": "why the employee is terminated: a termination, or a hire cancelled before it began"},
+    "version": {"type": "integer", "minimum": 1},
+    "updated_at": {"type": "string", "format": "date-time"}
+  }
+}

@@ -1,0 +1,384 @@
+openapi: 3.1.0
+info:
+  title: mdm/employee user surface
+  version: 3.0.0
+  description: >-
+    Employees, their appointments (a legal entity, a unit and a position for a period of business dates) and the links
+    of accounts to employees, for people and the front end. Every route needs a platform access token and the operation
+    in x-operation; what the caller may not see answers 404. Errors are application/problem+json with a reason. Lists
+    page by cursor only (protocol 14). Dates are the legal entity's business dates. A link and the end of one are
+    protected operations: they carry a confirmation made in the authorization member (security 08); without one they
+    answer 202 CONFIRMATION_REQUIRED and change nothing. The payee role, imports and self-service are in the contract
+    but not in this version: they answer CAPABILITY_UNSUPPORTED (D75).
+paths:
+  /api/employee/employees:
+    get:
+      operationId: listEmployees
+      x-operation: mdm.employee.read
+      parameters:
+        - {name: legal_entity_id, in: query, schema: {type: string}}
+        - {name: state, in: query, schema: {enum: [pre_hire, active, terminated]}}
+        - {name: q, in: query, schema: {type: string}, description: 'the employee number or a name'}
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: one page, by employee number
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [employees, next_cursor]
+                properties:
+                  employees: {type: array, items: {$ref: '#/components/schemas/EmployeeRead'}}
+                  next_cursor: {type: string}
+        default: {$ref: '#/components/responses/problem'}
+    post:
+      operationId: hireEmployee
+      x-operation: mdm.employee.manage
+      summary: Hire; pre_hire when the hire date is after today, active otherwise
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [legal_entity_id, employee_no, name, hire_date]
+              properties:
+                legal_entity_id: {type: string}
+                employee_no: {type: string}
+                name: {type: string}
+                names: {type: object, additionalProperties: {type: string}}
+                hire_date: {type: string, format: date}
+                personal: {$ref: '#/components/schemas/Personal'}
+      responses:
+        '200': {description: the employee, content: {application/json: {schema: {$ref: '#/components/schemas/EmployeeRead'}}}}
+        default: {$ref: '#/components/responses/problem'}
+  /api/employee/employees/{id}:
+    parameters: [{$ref: '#/components/parameters/id'}]
+    get:
+      operationId: getEmployee
+      x-operation: mdm.employee.read
+      summary: The employee; the restricted personal data only for a grant that may read it
+      responses:
+        '200': {description: the employee, content: {application/json: {schema: {$ref: '#/components/schemas/EmployeeRead'}}}}
+        default: {$ref: '#/components/responses/problem'}
+    patch:
+      operationId: updateEmployee
+      x-operation: mdm.employee.manage
+      summary: Names and the personal data; not the legal entity, the number or the state
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                version: {type: integer}
+                name: {type: string}
+                names: {type: object, additionalProperties: {type: string}}
+                personal: {$ref: '#/components/schemas/Personal'}
+      responses:
+        '200': {description: the employee, content: {application/json: {schema: {$ref: '#/components/schemas/EmployeeRead'}}}}
+        default: {$ref: '#/components/responses/problem'}
+  /api/employee/employees/{id}/terminate:
+    parameters: [{$ref: '#/components/parameters/id'}]
+    post:
+      operationId: terminateEmployee
+      x-operation: mdm.employee.manage
+      summary: Terminate on a date; today or before ends every appointment now, a later date is carried out then
+      description: >-
+        A tightening: its intent goes to the evidence store before the change (protocol 15). The answer warns when an
+        account linked to the employee holds the authorization admin role (D62); it never refuses for that.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [termination_date]
+              properties:
+                version: {type: integer}
+                termination_date: {type: string, format: date}
+      responses:
+        '200': {description: the employee, content: {application/json: {schema: {$ref: '#/components/schemas/EmployeeChange'}}}}
+        default: {$ref: '#/components/responses/problem'}
+  /api/employee/employees/{id}/withdraw-termination:
+    parameters: [{$ref: '#/components/parameters/id'}]
+    post:
+      operationId: withdrawTermination
+      x-operation: mdm.employee.manage
+      summary: Withdraw a termination whose date has not come
+      requestBody:
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: false, properties: {version: {type: integer}}}
+      responses:
+        '200': {description: the employee, content: {application/json: {schema: {$ref: '#/components/schemas/EmployeeRead'}}}}
+        default: {$ref: '#/components/responses/problem'}
+  /api/employee/employees/{id}/cancel-hire:
+    parameters: [{$ref: '#/components/parameters/id'}]
+    post:
+      operationId: cancelHire
+      x-operation: mdm.employee.manage
+      summary: Cancel a hire that has not begun (pre_hire to terminated, end_reason cancelled)
+      requestBody:
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: false, properties: {version: {type: integer}}}
+      responses:
+        '200': {description: the employee, content: {application/json: {schema: {$ref: '#/components/schemas/EmployeeRead'}}}}
+        default: {$ref: '#/components/responses/problem'}
+  /api/employee/employees/{id}/appointments:
+    parameters: [{$ref: '#/components/parameters/id'}]
+    get:
+      operationId: listAppointments
+      x-operation: mdm.employee.appointment.read
+      summary: The employee's appointments, the open ones first, then by start date
+      parameters:
+        - {name: state, in: query, schema: {enum: [planned, active, ended]}}
+      responses:
+        '200':
+          description: the appointments
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [appointments]
+                properties: {appointments: {type: array, items: {$ref: '#/components/schemas/Appointment'}}}
+        default: {$ref: '#/components/responses/problem'}
+    post:
+      operationId: appoint
+      x-operation: mdm.employee.appointment.manage
+      summary: Appoint to a position of an active unit of the employee's legal entity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [position_id, start_date]
+              properties:
+                position_id: {type: string, description: 'the unit and the legal entity are the position''s'}
+                start_date: {type: string, format: date}
+                end_date: {type: [string, 'null'], format: date}
+                note: {type: string}
+      responses:
+        '200': {description: the appointment, content: {application/json: {schema: {$ref: '#/components/schemas/Appointment'}}}}
+        default: {$ref: '#/components/responses/problem'}
+  /api/employee/employees/{id}/transfer:
+    parameters: [{$ref: '#/components/parameters/id'}]
+    post:
+      operationId: transfer
+      x-operation: mdm.employee.appointment.manage
+      summary: End one appointment (end_reason transfer) and make the new one, in one change
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [from_appointment_id, position_id, date]
+              properties:
+                from_appointment_id: {type: string}
+                position_id: {type: string}
+                date: {type: string, format: date, description: 'the first day of the new appointment; the old one ends the day before'}
+                note: {type: string}
+      responses:
+        '200':
+          description: the ended and the new appointment
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ended, appointment]
+                properties:
+                  ended: {$ref: '#/components/schemas/Appointment'}
+                  appointment: {$ref: '#/components/schemas/Appointment'}
+        default: {$ref: '#/components/responses/problem'}
+  /api/employee/appointments/{id}:
+    parameters: [{$ref: '#/components/parameters/id'}]
+    get:
+      operationId: getAppointment
+      x-operation: mdm.employee.appointment.read
+      responses:
+        '200': {description: the appointment, content: {application/json: {schema: {$ref: '#/components/schemas/Appointment'}}}}
+        default: {$ref: '#/components/responses/problem'}
+    patch:
+      operationId: updateAppointment
+      x-operation: mdm.employee.appointment.manage
+      summary: The note only; the legal entity, the unit and the position never change in place (security 04)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                version: {type: integer}
+                note: {type: string}
+      responses:
+        '200': {description: the appointment, content: {application/json: {schema: {$ref: '#/components/schemas/Appointment'}}}}
+        default: {$ref: '#/components/responses/problem'}
+  /api/employee/appointments/{id}/end:
+    parameters: [{$ref: '#/components/parameters/id'}]
+    post:
+      operationId: endAppointment
+      x-operation: mdm.employee.appointment.manage
+      summary: End an appointment on a date (today or before ends it now, a later date then; end_reason ended)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                version: {type: integer}
+                end_date: {type: string, format: date, description: 'the last day; empty: today'}
+      responses:
+        '200': {description: the appointment, content: {application/json: {schema: {$ref: '#/components/schemas/Appointment'}}}}
+        default: {$ref: '#/components/responses/problem'}
+  /api/employee/positions/{id}/holders:
+    parameters: [{$ref: '#/components/parameters/id'}]
+    get:
+      operationId: positionHolders
+      x-operation: mdm.employee.appointment.read
+      summary: The active appointments on a position (mdm/org's position ID), with their employees
+      responses:
+        '200':
+          description: the holders
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [holders]
+                properties:
+                  holders:
+                    type: array
+                    items:
+                      type: object
+                      required: [appointment, employee]
+                      properties:
+                        appointment: {$ref: '#/components/schemas/Appointment'}
+                        employee: {$ref: '#/components/schemas/Employee'}
+        default: {$ref: '#/components/responses/problem'}
+  /api/employee/employees/{id}/accounts:
+    parameters: [{$ref: '#/components/parameters/id'}]
+    get:
+      operationId: listAccountLinks
+      x-operation: mdm.employee.account_link.read
+      responses:
+        '200':
+          description: the employee's account links, active first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [links]
+                properties: {links: {type: array, items: {$ref: '#/components/schemas/AccountLink'}}}
+        default: {$ref: '#/components/responses/problem'}
+    post:
+      operationId: linkAccount
+      x-operation: mdm.employee.account_link.manage
+      summary: Link an account to the employee (protected, security 08 row 21)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [account, version]
+              properties:
+                account: {type: string, description: 'the account''s platform principal'}
+                version: {type: integer, description: 'the employee''s version the confirmation binds'}
+                confirmation: {type: string, description: 'a confirmation of this link from the authorization member'}
+      responses:
+        '200': {description: the link, content: {application/json: {schema: {$ref: '#/components/schemas/AccountLink'}}}}
+        '202': {description: CONFIRMATION_REQUIRED (none given), nothing changed, content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}}
+        default: {$ref: '#/components/responses/problem'}
+  /api/employee/account-links/{id}/end:
+    parameters: [{$ref: '#/components/parameters/id'}]
+    post:
+      operationId: endAccountLink
+      x-operation: mdm.employee.account_link.manage
+      summary: End an account link (protected); a tightening, its intent first (protocol 15)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [version]
+              properties:
+                version: {type: integer, description: 'the employee''s version the confirmation binds'}
+                confirmation: {type: string}
+      responses:
+        '200': {description: the link, content: {application/json: {schema: {$ref: '#/components/schemas/AccountLinkChange'}}}}
+        '202': {description: CONFIRMATION_REQUIRED (none given), nothing changed, content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}}
+        default: {$ref: '#/components/responses/problem'}
+  /api/employee/accounts/{account}/employee:
+    parameters: [{name: account, in: path, required: true, schema: {type: string}}]
+    get:
+      operationId: employeeOfAccount
+      x-operation: mdm.employee.account_link.read
+      summary: The employee an account is linked to now
+      responses:
+        '200': {description: the employee, content: {application/json: {schema: {$ref: '#/components/schemas/Employee'}}}}
+        default: {$ref: '#/components/responses/problem'}
+  /api/employee/employees/{id}/payee:
+    parameters: [{$ref: '#/components/parameters/id'}]
+    post: {operationId: openPayee, x-operation: mdm.employee.manage, summary: 'The payee role in mdm/partner (D69; not in this version: CAPABILITY_UNSUPPORTED)', responses: {default: {$ref: '#/components/responses/problem'}}}
+  /api/employee/imports:
+    post: {operationId: importEmployees, x-operation: mdm.employee.manage, summary: 'An import of employees and opening appointments (protocol 16; not in this version: CAPABILITY_UNSUPPORTED)', responses: {default: {$ref: '#/components/responses/problem'}}}
+  /api/employee/me/change-requests:
+    post: {operationId: requestOwnChange, x-operation: mdm.employee.read, summary: 'An employee asks to change their own data (not in this version: CAPABILITY_UNSUPPORTED)', responses: {default: {$ref: '#/components/responses/problem'}}}
+components:
+  parameters:
+    id: {name: id, in: path, required: true, schema: {type: string, format: uuid}}
+    cursor: {name: cursor, in: query, schema: {type: string}}
+    limit: {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
+  responses:
+    problem:
+      description: an error (application/problem+json with reason)
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+  schemas:
+    Problem: {type: object, required: [reason], properties: {reason: {type: string}, detail: {type: string}}}
+    Employee: {$ref: 'events/mdm.employee.changed.v1.schema.json'}
+    Appointment: {$ref: 'events/mdm.employee.appointment.changed.v1.schema.json'}
+    AccountLink: {$ref: 'events/mdm.employee.account_link.changed.v1.schema.json'}
+    Personal:
+      type: object
+      additionalProperties: false
+      description: 'restricted fields (security 09a): read only by a grant that lists them; never in events'
+      properties:
+        birth_date: {type: [string, 'null'], format: date}
+        national_id: {type: [string, 'null']}
+    EmployeeRead:
+      description: the employee's state and, for a grant that may read them, the restricted personal data
+      allOf:
+        - {$ref: '#/components/schemas/Employee'}
+        - type: object
+          properties:
+            personal: {$ref: '#/components/schemas/Personal'}
+    EmployeeChange:
+      allOf:
+        - {$ref: '#/components/schemas/EmployeeRead'}
+        - type: object
+          properties:
+            last_admin_warning: {type: boolean, description: 'an account linked to the employee holds the authorization admin role (D62): a warning, never a refusal'}
+    AccountLinkChange:
+      allOf:
+        - {$ref: '#/components/schemas/AccountLink'}
+        - type: object
+          properties:
+            last_admin_warning: {type: boolean, description: 'the account holds the authorization admin role (D62)'}

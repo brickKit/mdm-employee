@@ -6,7 +6,7 @@
 
 | 文件 | 内容 |
 | --- | --- |
-| `base.go` | `Base`：运行时、证据写入器、`Org`（这个成员的 `mdm/org` 投影）、钩子 `Terminated`、`AdminWarning` |
+| `base.go` | `Base`：运行时、证据写入器、`Org`（这个成员的 `mdm/org` 投影）、授权组件的 `Authz`（`AccountService`）、钩子 `Terminated`、`AdminWarning` |
 | `names.go` | 组件 ID、流与事件类型、`mdm/org` 的名字、资源与操作、维度（任职按法人与部门路径，员工与关联只按法人）、受限字段的读取键；`Definitions()` |
 | `rules.go` | 错误原因、格式、`Unsupported`、`Check`、`Invalid`、`NotFound`、`Change`、`CheckNames`、`SearchOf`、`Build`、`Eq`、`Principal`、`ResourceOf` |
 | `org.go` | `OrgLegalEntity`、`OrgUnit`、`OrgPosition`、接口 `OrgView`；`Retirement` 与 `JobEndOnRetirement` |

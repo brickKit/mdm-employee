@@ -6,6 +6,7 @@ import (
 	"github.com/brickKit/be-sdk-go/v3/db"
 	"github.com/brickKit/be-sdk-go/v3/evidence"
 	"github.com/brickKit/be-sdk-go/v3/runtime"
+	authzv3 "github.com/brickKit/contract-infra-authz/v3/gen/go/be/authz/v3"
 )
 
 // Base is what every module works with: the component's runtime (its database, events, audit, calls, logger), the
@@ -15,6 +16,8 @@ type Base struct {
 	RT  *runtime.Runtime
 	Ev  *evidence.Writer
 	Org OrgView
+	// Authz is the authorization member's AccountService (the link's confirmation check, the admins of D62).
+	Authz authzv3.AccountServiceClient
 	// Terminated ends what an employee's termination ends beyond the employee (the appointments), in the termination's
 	// transaction, the actor the termination's; the entry package wires the appointments module in. nil: nothing more.
 	Terminated func(ctx context.Context, tx db.Tx, actor, employee, date string) error

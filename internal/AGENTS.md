@@ -8,11 +8,12 @@
 | --- | --- | --- |
 | `appointments` | 任职 | `core` |
 | `employees` | 员工的生命周期 | `core` |
+| `links` | 账号关联 | `core` |
 | `orgview` | `mdm/org` 的投影；实现 `core.OrgView` | `core` |
 | `source` | 水位流的记录读取 | `core` |
 | `core`（共用） | 名字与资源定义、校验、审计与事件、记录、列表的共用部分、`Base`、本版不做的路由 | — |
 
-分层（每个包只引用比它低的层）：`appointments`、`employees`、`orgview`、`source` → `core`。员工模块要结束任职、问最后管理员时经 `core.Base` 上的钩子（`Terminated`、`AdminWarning`），由入口接上，不直接引用别的模块。别的模块经 `core.Base.Org`（接口 `core.OrgView`）用投影，不直接引用 `orgview`。
+分层（每个包只引用比它低的层）：`appointments`、`employees`、`links`、`orgview`、`source` → `core`。员工模块要结束任职、问最后管理员时经 `core.Base` 上的钩子（`Terminated`、`AdminWarning`），由入口接上，不直接引用别的模块。别的模块经 `core.Base.Org`（接口 `core.OrgView`）用投影，不直接引用 `orgview`。
 
 ## 共同的写法
 

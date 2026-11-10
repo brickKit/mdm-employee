@@ -7,13 +7,16 @@ import (
 	appointments "github.com/brickKit/mdm-employee/v3/internal/appointments"
 	core "github.com/brickKit/mdm-employee/v3/internal/core"
 	employees "github.com/brickKit/mdm-employee/v3/internal/employees"
+	links "github.com/brickKit/mdm-employee/v3/internal/links"
 	orgview "github.com/brickKit/mdm-employee/v3/internal/orgview"
 
 	"github.com/brickKit/be-sdk-go/v3/db"
+	"github.com/brickKit/be-sdk-go/v3/errs"
 	"github.com/brickKit/be-sdk-go/v3/events"
 	"github.com/brickKit/be-sdk-go/v3/httpx"
 	"github.com/brickKit/be-sdk-go/v3/runtime"
 	"github.com/brickKit/be-sdk-go/v3/work"
+	authzv3 "github.com/brickKit/contract-infra-authz/v3/gen/go/be/authz/v3"
 )
 
 // Module is the employee component as the launcher and the shells run it: it only assembles the business modules
@@ -29,6 +32,13 @@ func New(rt *runtime.Runtime) (*Module, error) {
 	v := orgview.New(b)
 	b.Org = v
 	b.Terminated = appointments.Ended(b)
+	b.AdminWarning = links.AdminWarning(b)
+	// the authorization member's system surface: a link's confirmation is checked there (security 08)
+	conn, ok := rt.GRPCAt(core.Authz, rt.Config.String("AUTHZ_GRPC_URL"))
+	if !ok {
+		return nil, errs.New(errs.ReasonRequestInvalid, "AUTHZ_GRPC_URL cannot be dialled: account links are checked there")
+	}
+	b.Authz = authzv3.NewAccountServiceClient(conn)
 	return &Module{b: b, org: v}, nil
 }
 
@@ -76,11 +86,11 @@ func (m *Module) Routes(r *httpx.Routes) error {
 	add("PATCH", "/api/employee/appointments/:id", core.OpApptEdit, h(appointments.UpdateAppointment))
 	add("POST", "/api/employee/appointments/:id/end", core.OpApptEdit, h(appointments.EndAppointment))
 	add("GET", "/api/employee/positions/:id/holders", core.OpApptRead, h(appointments.Holders))
+	add("GET", "/api/employee/employees/:id/accounts", core.OpLinkRead, h(links.ListLinks))
+	add("POST", "/api/employee/employees/:id/accounts", core.OpLinkEdit, h(links.LinkAccount))
+	add("POST", "/api/employee/account-links/:id/end", core.OpLinkEdit, h(links.EndLink))
+	add("GET", "/api/employee/accounts/:account/employee", core.OpLinkRead, h(links.EmployeeOfAccount))
 	for _, u := range []struct{ method, path, op string }{
-		{"GET", "/api/employee/employees/:id/accounts", core.OpLinkRead},
-		{"POST", "/api/employee/employees/:id/accounts", core.OpLinkEdit},
-		{"POST", "/api/employee/account-links/:id/end", core.OpLinkEdit},
-		{"GET", "/api/employee/accounts/:account/employee", core.OpLinkRead},
 		// in the contract, not in this version (D75)
 		{"POST", "/api/employee/employees/:id/payee", core.OpEmployeeEdit},
 		{"POST", "/api/employee/imports", core.OpEmployeeEdit},

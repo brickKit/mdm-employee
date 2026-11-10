@@ -70,10 +70,19 @@ func (c client) do(method, path string, body any) (int, map[string]any) {
 	return code, out
 }
 
+// must wants 200 with the record readable: an answer whose fields are masked (P8.31) means the seed user's role, the
+// one that reads the fields, has not reached this component's view yet (the cell's own grant to the seed user reads
+// no field): the same request again after a pause, for up to 30 s (every write here is idempotent)
 func (c client) must(method, path string, body any) map[string]any {
-	out, err := c.Must(method, path, body)
-	check(err)
-	return out
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		out, err := c.Must(method, path, body)
+		check(err)
+		if masked, _ := out["_masked"].([]any); len(masked) == 0 || time.Now().After(deadline) {
+			return out
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 }
 
 // confirm makes a confirmation at the authorization member (it answers 201).

@@ -6,9 +6,9 @@
 
 | 包 | 一句话 | 依赖（本组件内） |
 | --- | --- | --- |
-| `appointments` | 任职 | `core` |
-| `employees` | 员工的生命周期 | `core` |
-| `links` | 账号关联 | `core` |
+| `appointments` | 任职 | `core`、`tightening` |
+| `employees` | 员工的生命周期 | `core`、`tightening` |
+| `links` | 账号关联 | `core`、`tightening` |
 | `orgview` | `mdm/org` 的投影；实现 `core.OrgView` | `core` |
 | `source` | 水位流的记录读取 | `core` |
 | `tightening` | 收紧的证据 | `core` |

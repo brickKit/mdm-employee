@@ -8,7 +8,7 @@
 
 | 目录 | 是什么 |
 | --- | --- |
-| [`employee/`](employee/AGENTS.md) | 入口：组件定义与组装（路由、水位流与记录读取、证据的重放、恢复核对都在这里登记，转给业务模块）；不写业务。`main.go` 与外壳只引用它 |
+| [`employee/`](employee/AGENTS.md) | 入口：组件定义与组装（路由、订阅、作业、水位流与记录读取、证据的重放、恢复核对都在这里登记，转给业务模块；`core.Base` 的投影、授权组件客户端与钩子在 `New` 里接上）；不写业务。`main.go` 与外壳只引用它 |
 | [`internal/`](internal/AGENTS.md) | 业务：下面的模块各一个包；模块之间的依赖表在它的 `AGENTS.md` |
 | [`itest/`](itest/AGENTS.md) | 集成测试，按业务流程分文件；它的 `AGENTS.md` 是测试索引 |
 | `employee/migrations/` | 表：员工、任职、账号关联 |
@@ -24,10 +24,10 @@
 | [`links`](internal/links/AGENTS.md) | 账号关联：建立与结束（授权组件核对确认，确认只用一次）、某账号的员工、最后管理员的提示 | `account_link` |
 | [`orgview`](internal/orgview/AGENTS.md) | `mdm/org` 的投影（法人、部门、岗位）：事件、对齐、修复；退役时排结束任职 | `org_realign`（投影本身在 SDK 的表里） |
 | [`source`](internal/source/AGENTS.md) | 水位流的记录读取（三种记录，按身份与按身份顺序） | — |
+| [`tightening`](internal/tightening/AGENTS.md) | 收紧的证据（协议 15）：离职、任职结束、关联结束的意图、结论、取消 | — |
+| [`replay`](internal/replay/AGENTS.md) | 整套恢复后按证据重放收紧 | — |
 
 共用的：[`core`](internal/core/AGENTS.md)（名字与资源定义、校验、审计与事件的写法、记录的类型与读取、列表的共用部分、本版不做的路由）。
-
-（收紧的证据与重放、水位流的测试、恢复核对随 C1 的 E3f 加入，见装配项目 `dev/rebuild/c1-employee-plan.md`。）
 
 ## 构建与测试
 

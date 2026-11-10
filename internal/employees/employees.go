@@ -13,10 +13,12 @@ import (
 	"strings"
 
 	core "github.com/brickKit/mdm-employee/v3/internal/core"
+	tightening "github.com/brickKit/mdm-employee/v3/internal/tightening"
 
 	sdkauthz "github.com/brickKit/be-sdk-go/v3/authz"
 	"github.com/brickKit/be-sdk-go/v3/bizdate"
 	"github.com/brickKit/be-sdk-go/v3/db"
+	"github.com/brickKit/be-sdk-go/v3/evidence"
 	"github.com/brickKit/be-sdk-go/v3/httpx"
 	"github.com/brickKit/be-sdk-go/v3/ids"
 	"github.com/brickKit/be-sdk-go/v3/list"
@@ -236,9 +238,11 @@ func GetEmployee(m *core.Base, c *httpx.Context) error {
 }
 
 // change locks the employee, applies the change and writes, publishes and audits it if it changed; the answer is the
-// employee read for the caller, with extra keys.
-func change(m *core.Base, c *httpx.Context, version *int64, apply func(ctx context.Context, tx db.Tx, e *core.Employee,
-	p *core.Personal, today string) error, extra map[string]any) error {
+// employee read for the caller, with extra keys. A change that may tighten (tight, built with the legal entity's
+// today) writes its intent before, from the employee read without a lock, and its conclusion in the transaction when
+// it did tighten; otherwise the intent is cancelled.
+func change(m *core.Base, c *httpx.Context, version *int64, tight func(today string) *tightening.Tightening[core.Employee],
+	apply func(ctx context.Context, tx db.Tx, e *core.Employee, p *core.Personal, today string) error, extra map[string]any) error {
 	id := c.Param("id")
 	le, err := legalEntityOf(m, c.Ctx(), id)
 	if err != nil {
@@ -252,7 +256,18 @@ func change(m *core.Base, c *httpx.Context, version *int64, apply func(ctx conte
 	if err != nil {
 		return err
 	}
+	var t *tightening.Tightening[core.Employee]
+	var pending *evidence.Pending
+	if tight != nil {
+		t = tight(today)
+		if pre, err := employee(m, ctx, id); err == nil {
+			pending = tightening.Intent(ctx, m.Ev, t, id, pre.Version, pre)
+		}
+	}
+	concluded := false
+	defer func() { tightening.Settle(ctx, pending, concluded) }()
 	err = m.RT.DB.Tx(ctx, func(ctx context.Context, tx db.Tx) error {
+		concluded = false
 		cur, err := core.GetEmployee(ctx, tx, id, true)
 		if err != nil {
 			return err
@@ -279,8 +294,14 @@ func change(m *core.Base, c *httpx.Context, version *int64, apply func(ctx conte
 		if err != nil {
 			return err
 		}
+		if concluded, err = tightening.Conclude(ctx, tx, pending, t, cur, next); err != nil {
+			return err
+		}
 		return Published(m, ctx, tx, actor, core.OpEmployeeEdit, out)
 	})
+	if err != nil {
+		concluded = false // the transaction did not commit
+	}
 	if errors.Is(err, core.ErrNone) {
 		return core.NotFound("employee")
 	}
@@ -292,6 +313,17 @@ func change(m *core.Base, c *httpx.Context, version *int64, apply func(ctx conte
 		return err
 	}
 	return answer(c, out, extra)
+}
+
+// employee reads an employee in a transaction of its own (the state an intent is written from).
+func employee(m *core.Base, ctx context.Context, id string) (core.Employee, error) {
+	var e core.Employee
+	err := m.RT.DB.Tx(ctx, func(ctx context.Context, tx db.Tx) error {
+		var err error
+		e, err = core.GetEmployee(ctx, tx, id, false)
+		return err
+	})
+	return e, err
 }
 
 func same(a, b any) bool {
@@ -326,7 +358,7 @@ func UpdateEmployee(m *core.Base, c *httpx.Context) error {
 	if err := checkPersonal(in.Personal); err != nil {
 		return err
 	}
-	return change(m, c, in.Version, func(_ context.Context, _ db.Tx, e *core.Employee, p *core.Personal, _ string) error {
+	return change(m, c, in.Version, nil, func(_ context.Context, _ db.Tx, e *core.Employee, p *core.Personal, _ string) error {
 		if in.Name != nil {
 			e.Name = *in.Name
 		}
@@ -373,7 +405,10 @@ func Terminate(m *core.Base, c *httpx.Context) error {
 			return err
 		}
 	}
-	return change(m, c, in.Version, func(ctx context.Context, tx db.Tx, e *core.Employee, _ *core.Personal, today string) error {
+	tight := func(today string) *tightening.Tightening[core.Employee] {
+		return tightening.Termination(in.TerminationDate, today)
+	}
+	return change(m, c, in.Version, tight, func(ctx context.Context, tx db.Tx, e *core.Employee, _ *core.Personal, today string) error {
 		if e.State != "active" {
 			return core.ErrState.New("the employee is " + e.State + ": only an active employee is terminated")
 		}
@@ -405,7 +440,7 @@ func WithdrawTermination(m *core.Base, c *httpx.Context) error {
 	if err != nil {
 		return err
 	}
-	return change(m, c, v, func(_ context.Context, _ db.Tx, e *core.Employee, _ *core.Personal, _ string) error {
+	return change(m, c, v, nil, func(_ context.Context, _ db.Tx, e *core.Employee, _ *core.Personal, _ string) error {
 		if e.State != "active" || e.TerminationDate == nil {
 			return core.ErrState.New("no termination to withdraw")
 		}
@@ -420,7 +455,7 @@ func CancelHire(m *core.Base, c *httpx.Context) error {
 	if err != nil {
 		return err
 	}
-	return change(m, c, v, func(_ context.Context, _ db.Tx, e *core.Employee, _ *core.Personal, _ string) error {
+	return change(m, c, v, nil, func(_ context.Context, _ db.Tx, e *core.Employee, _ *core.Personal, _ string) error {
 		if e.State != "pre_hire" {
 			return core.ErrState.New("the employee is " + e.State + ": only a hire that has not begun is cancelled")
 		}
@@ -514,7 +549,16 @@ func effectiveIn(m *core.Base, ctx context.Context, le, today string) error {
 		return err
 	}
 	for _, id := range due {
-		if err := m.RT.DB.BackgroundTx(ctx, func(ctx context.Context, tx db.Tx) error {
+		// a termination that came due tightens: its intent first, from the employee read without a lock
+		var t *tightening.Tightening[core.Employee]
+		var pending *evidence.Pending
+		if pre, err := employee(m, ctx, id); err == nil && pre.State == "active" && pre.TerminationDate != nil {
+			t = tightening.Termination(*pre.TerminationDate, today)
+			pending = tightening.Intent(ctx, m.Ev, t, id, pre.Version, pre)
+		}
+		concluded := false
+		err := m.RT.DB.BackgroundTx(ctx, func(ctx context.Context, tx db.Tx) error {
+			concluded = false
 			cur, err := core.GetEmployee(ctx, tx, id, true)
 			if err != nil {
 				return err
@@ -542,10 +586,51 @@ func effectiveIn(m *core.Base, ctx context.Context, le, today string) error {
 			if err != nil {
 				return err
 			}
+			if t != nil {
+				if concluded, err = tightening.Conclude(ctx, tx, pending, t, cur, next); err != nil {
+					return err
+				}
+			}
 			return Published(m, ctx, tx, jobActor, core.OpEmployeeEdit, out)
-		}); err != nil {
+		})
+		if err != nil {
+			concluded = false
+		}
+		tightening.Settle(ctx, pending, concluded)
+		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// ReplayTermination terminates the employee again as the evidence records it, after a full recovery (no business
+// precondition: it held when the termination was made), ending its open appointments as a termination does. Already
+// terminated: nothing to do. Not there: evidence.ErrDangling.
+func ReplayTermination(m *core.Base, ctx context.Context, tx db.Tx, actor, id, date string) error {
+	cur, err := core.GetEmployee(ctx, tx, id, true)
+	if errors.Is(err, core.ErrNone) {
+		return fmt.Errorf("employee %s: %w", id, evidence.ErrDangling)
+	}
+	if err != nil || cur.State == "terminated" {
+		return err
+	}
+	next := cur
+	next.TerminationDate = &date
+	if err := terminated(m, ctx, tx, actor, &next, date); err != nil {
+		return err
+	}
+	var p core.Personal
+	if err := tx.QueryRow(ctx, `SELECT birth_date::text, national_id FROM employee WHERE id = $1`, id).Scan(&p.BirthDate,
+		&p.NationalID); err != nil {
+		return err
+	}
+	if err := write(ctx, tx, next, p); err != nil {
+		return err
+	}
+	out, err := core.GetEmployee(ctx, tx, id, false)
+	if err != nil {
+		return err
+	}
+	return Published(m, ctx, tx, actor, core.OpEmployeeEdit, out)
 }

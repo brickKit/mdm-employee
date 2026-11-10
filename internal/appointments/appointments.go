@@ -14,10 +14,12 @@ import (
 	"time"
 
 	core "github.com/brickKit/mdm-employee/v3/internal/core"
+	tightening "github.com/brickKit/mdm-employee/v3/internal/tightening"
 
 	sdkauthz "github.com/brickKit/be-sdk-go/v3/authz"
 	"github.com/brickKit/be-sdk-go/v3/bizdate"
 	"github.com/brickKit/be-sdk-go/v3/db"
+	"github.com/brickKit/be-sdk-go/v3/evidence"
 	"github.com/brickKit/be-sdk-go/v3/httpx"
 	"github.com/brickKit/be-sdk-go/v3/ids"
 	"github.com/brickKit/be-sdk-go/v3/list"
@@ -214,6 +216,31 @@ func end(m *core.Base, ctx context.Context, tx db.Tx, actor string, a core.Appoi
 	return out, Published(m, ctx, tx, actor, out)
 }
 
+// ending is the evidence of one appointment's end (a tightening): its intent written before the transaction, from
+// the appointment read without a lock; conclude in the transaction; settle after it.
+type ending struct {
+	t         *tightening.Tightening[core.Appointment]
+	before    core.Appointment
+	p         *evidence.Pending
+	concluded bool
+}
+
+func intent(m *core.Base, ctx context.Context, before core.Appointment, reason, last string) *ending {
+	t := tightening.AppointmentEnd(reason, last)
+	return &ending{t: t, before: before, p: tightening.Intent(ctx, m.Ev, t, before.ID, before.Version, before)}
+}
+
+func (e *ending) conclude(ctx context.Context, tx db.Tx, after core.Appointment) error {
+	var err error
+	e.concluded, err = tightening.Conclude(ctx, tx, e.p, e.t, e.before, after)
+	return err
+}
+
+// settle cancels the intent unless the end was concluded and its transaction committed (err nil).
+func (e *ending) settle(ctx context.Context, err error) {
+	tightening.Settle(ctx, e.p, e.concluded && err == nil)
+}
+
 // appointmentOf reads an appointment and checks the caller for op on it.
 func appointmentOf(m *core.Base, c *httpx.Context, op string) (context.Context, string, core.Appointment, error) {
 	id := c.Param("id")
@@ -324,12 +351,20 @@ func EndAppointment(m *core.Base, c *httpx.Context) error {
 	if last == "" {
 		last = now
 	}
+	var ev *ending
+	if last <= now { // ends now: a tightening
+		ev = intent(m, ctx, a, "ended", last)
+	}
 	out, err := change(m, ctx, a.ID, in.Version, func(tx db.Tx, cur core.Appointment) (core.Appointment, error) {
 		if cur.State == "ended" {
 			return cur, core.ErrState.New("the appointment has ended")
 		}
 		if last <= now {
-			return end(m, ctx, tx, actor, cur, last, "ended")
+			after, err := end(m, ctx, tx, actor, cur, last, "ended")
+			if err != nil {
+				return after, err
+			}
+			return after, ev.conclude(ctx, tx, after)
 		}
 		if _, err := tx.Exec(ctx, `UPDATE appointment SET end_date = $2, version = version + 1, updated_at = now()
 			WHERE id = $1`, cur.ID, last); err != nil {
@@ -341,6 +376,9 @@ func EndAppointment(m *core.Base, c *httpx.Context) error {
 		}
 		return next, Published(m, ctx, tx, actor, next)
 	})
+	if ev != nil {
+		ev.settle(ctx, err)
+	}
 	if err != nil {
 		return err
 	}
@@ -384,6 +422,10 @@ func Transfer(m *core.Base, c *httpx.Context) error {
 	if in.Date > now {
 		return core.Invalid("date", "a transfer is today or before: a later one is an end date on the appointment and a new planned one")
 	}
+	var ev *ending
+	if pre, err := read(m, ctx, in.FromAppointmentID); err == nil && pre.EmployeeID == emp.ID {
+		ev = intent(m, ctx, pre, "transfer", dayBefore(in.Date))
+	}
 	var ended, made core.Appointment
 	err = m.RT.DB.Tx(ctx, func(ctx context.Context, tx db.Tx) error {
 		locked, err := core.GetEmployee(ctx, tx, emp.ID, true)
@@ -403,9 +445,17 @@ func Transfer(m *core.Base, c *httpx.Context) error {
 		if ended, err = end(m, ctx, tx, actor, from, dayBefore(in.Date), "transfer"); err != nil {
 			return err
 		}
+		if ev != nil {
+			if err := ev.conclude(ctx, tx, ended); err != nil {
+				return err
+			}
+		}
 		made, err = insert(m, ctx, tx, actor, locked, t, in.Date, nil, in.Note, now)
 		return err
 	})
+	if ev != nil {
+		ev.settle(ctx, err)
+	}
 	if err != nil {
 		return err
 	}
@@ -543,14 +593,24 @@ func EndOnRetirement(m *core.Base, ctx context.Context, r *work.Run) error {
 		if err != nil {
 			return err
 		}
-		if err := m.RT.DB.BackgroundTx(ctx, func(ctx context.Context, tx db.Tx) error {
+		pre, err := read(m, ctx, id)
+		if err != nil {
+			return err
+		}
+		ev := intent(m, ctx, pre, reason, now)
+		err = m.RT.DB.BackgroundTx(ctx, func(ctx context.Context, tx db.Tx) error {
 			a, err := core.GetAppointment(ctx, tx, id, true)
 			if err != nil || a.State == "ended" {
 				return err
 			}
-			_, err = end(m, ctx, tx, "job:"+core.JobEndOnRetirement, a, now, reason)
-			return err
-		}); err != nil {
+			after, err := end(m, ctx, tx, "job:"+core.JobEndOnRetirement, a, now, reason)
+			if err != nil {
+				return err
+			}
+			return ev.conclude(ctx, tx, after)
+		})
+		ev.settle(ctx, err)
+		if err != nil {
 			return err
 		}
 	}
@@ -587,15 +647,22 @@ func Effective(m *core.Base, ctx context.Context, _ *work.Run) error {
 			all = append(all, err)
 			continue
 		}
-		all = append(all, m.RT.DB.BackgroundTx(ctx, func(ctx context.Context, tx db.Tx) error {
+		var ev *ending
+		if pre, err := read(m, ctx, id); err == nil && pre.State != "ended" && pre.EndDate != nil && *pre.EndDate < now {
+			ev = intent(m, ctx, pre, "expired", *pre.EndDate)
+		}
+		err = m.RT.DB.BackgroundTx(ctx, func(ctx context.Context, tx db.Tx) error {
 			a, err := core.GetAppointment(ctx, tx, id, true)
 			if err != nil || a.State == "ended" {
 				return err
 			}
 			switch {
 			case a.EndDate != nil && *a.EndDate < now:
-				_, err = end(m, ctx, tx, jobActor, a, *a.EndDate, "expired")
-				return err
+				after, err := end(m, ctx, tx, jobActor, a, *a.EndDate, "expired")
+				if err != nil || ev == nil {
+					return err
+				}
+				return ev.conclude(ctx, tx, after)
 			case a.State == "planned" && a.StartDate <= now:
 				if _, err := tx.Exec(ctx, `UPDATE appointment SET state = 'active', version = version + 1, updated_at = now()
 					WHERE id = $1`, a.ID); err != nil {
@@ -608,7 +675,36 @@ func Effective(m *core.Base, ctx context.Context, _ *work.Run) error {
 				return Published(m, ctx, tx, jobActor, next)
 			}
 			return nil
-		}))
+		})
+		if ev != nil {
+			ev.settle(ctx, err)
+		}
+		all = append(all, err)
 	}
 	return errors.Join(all...)
+}
+
+// read reads an appointment in a transaction of its own (the state an intent is written from).
+func read(m *core.Base, ctx context.Context, id string) (core.Appointment, error) {
+	var a core.Appointment
+	err := m.RT.DB.BackgroundTx(ctx, func(ctx context.Context, tx db.Tx) error {
+		var err error
+		a, err = core.GetAppointment(ctx, tx, id, false)
+		return err
+	})
+	return a, err
+}
+
+// ReplayEnd ends the appointment again as the evidence records it (its reason and last day), after a full recovery.
+// Already ended: nothing to do. Not there: evidence.ErrDangling.
+func ReplayEnd(m *core.Base, ctx context.Context, tx db.Tx, actor, id, reason, last string) error {
+	a, err := core.GetAppointment(ctx, tx, id, true)
+	if errors.Is(err, core.ErrNone) {
+		return fmt.Errorf("appointment %s: %w", id, evidence.ErrDangling)
+	}
+	if err != nil || a.State == "ended" {
+		return err
+	}
+	_, err = end(m, ctx, tx, actor, a, last, reason)
+	return err
 }

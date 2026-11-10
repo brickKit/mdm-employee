@@ -5,7 +5,7 @@
 ## 负责与不负责
 
 - 负责：表 `employee`；路由 `/api/employee/employees` 的列表、入职、读取、修改、离职、撤回离职、取消入职；事件 `mdm.employee.changed.v1`（主题是员工）；个人资料只在单条读取里、按可读字段遮蔽（`authz.Mask`），不进列表、不进事件；工号在法人内唯一，同样的入职答原来的；作业 `employee-effective`（每分钟，到期的入职与离职）；`Today`（法人的业务日期）。
-- 不负责：任职（离职时经 `Base.Terminated` 由任职模块结束）；最后管理员的提示（`Base.AdminWarning` 由关联模块答）；离职的意图证据（随 E3f）。
+- 不负责：任职（离职时经 `Base.Terminated` 由任职模块结束）；最后管理员的提示（`Base.AdminWarning` 由关联模块答）。
 
 ## 文件
 
@@ -15,7 +15,7 @@
 
 ## 依赖与被依赖
 
-- 依赖：`core`（含 `Base.Org` 的投影）。
+- 依赖：`core`（含 `Base.Org` 的投影）、`tightening`。
 - 被依赖：入口登记路由与作业。
 
 ## 规则在哪

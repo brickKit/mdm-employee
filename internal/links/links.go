@@ -15,11 +15,13 @@ import (
 	"net/http"
 
 	core "github.com/brickKit/mdm-employee/v3/internal/core"
+	tightening "github.com/brickKit/mdm-employee/v3/internal/tightening"
 
 	sdkauthz "github.com/brickKit/be-sdk-go/v3/authz"
 	"github.com/brickKit/be-sdk-go/v3/calls"
 	"github.com/brickKit/be-sdk-go/v3/db"
 	"github.com/brickKit/be-sdk-go/v3/errs"
+	"github.com/brickKit/be-sdk-go/v3/evidence"
 	"github.com/brickKit/be-sdk-go/v3/httpx"
 	"github.com/brickKit/be-sdk-go/v3/ids"
 	authzv3 "github.com/brickKit/contract-infra-authz/v3/gen/go/be/authz/v3"
@@ -294,8 +296,13 @@ func EndLink(m *core.Base, c *httpx.Context) error {
 	if handled, err := check(m, c, ctx, emp.ID, emp.Version, l.Account, "unlink", actor, in.Confirmation); handled || err != nil {
 		return err
 	}
+	// a tightening: the intent first, from the link read without a lock
+	t := tightening.LinkEnd(in.Confirmation)
+	pending := tightening.Intent(ctx, m.Ev, t, l.ID, l.Version, l)
+	concluded := false
 	var out core.Link
 	err = m.RT.DB.Tx(ctx, func(ctx context.Context, tx db.Tx) error {
+		concluded = false
 		cur, err := core.GetEmployee(ctx, tx, emp.ID, true)
 		if err != nil {
 			return err
@@ -323,8 +330,12 @@ func EndLink(m *core.Base, c *httpx.Context) error {
 		if out, err = core.GetLink(ctx, tx, id, false); err != nil {
 			return err
 		}
+		if concluded, err = tightening.Conclude(ctx, tx, pending, t, link, out); err != nil {
+			return err
+		}
 		return Published(m, ctx, tx, actor, out)
 	})
+	tightening.Settle(ctx, pending, concluded && err == nil)
 	if err != nil {
 		return err
 	}
@@ -385,4 +396,25 @@ func EmployeeOfAccount(m *core.Base, c *httpx.Context) error {
 		return err
 	}
 	return c.JSON(200, e)
+}
+
+// ReplayEnd ends the link again as the evidence records it (its end confirmation), after a full recovery. Already
+// ended: nothing to do. Not there: evidence.ErrDangling.
+func ReplayEnd(m *core.Base, ctx context.Context, tx db.Tx, actor, id, confirmation string) error {
+	l, err := core.GetLink(ctx, tx, id, true)
+	if errors.Is(err, core.ErrNone) {
+		return fmt.Errorf("account link %s: %w", id, evidence.ErrDangling)
+	}
+	if err != nil || l.State == "ended" {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE account_link SET state = 'ended', end_confirmation = $2, ended_at = now(),
+		version = version + 1, updated_at = now() WHERE id = $1`, id, confirmation); err != nil {
+		return unique(err)
+	}
+	out, err := core.GetLink(ctx, tx, id, false)
+	if err != nil {
+		return err
+	}
+	return Published(m, ctx, tx, actor, out)
 }

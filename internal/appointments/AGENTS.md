@@ -5,7 +5,7 @@
 ## 负责与不负责
 
 - 负责：表 `appointment`（`unit_path` 是部门维度的事实，从投影抄来，部门移动时由投影改写）；路由：某员工的任职、任命、调岗、读取、改备注、结束、岗位的持有人；事件 `mdm.employee.appointment.changed.v1`（主题是员工）；任命前按投影核对岗位与部门启用、属于员工的法人；作业 `appointment-effective`（每分钟）与 `core.JobEndOnRetirement`。
-- 不负责：员工（`employees`）；部门路径的改写（`orgview` 的钩子）；任职结束的意图证据（随 E3f）。
+- 不负责：员工（`employees`）；部门路径的改写（`orgview` 的钩子）。
 
 ## 文件
 
@@ -15,7 +15,7 @@
 
 ## 依赖与被依赖
 
-- 依赖：`core`（含 `Base.Org`）。
+- 依赖：`core`（含 `Base.Org`）、`tightening`。
 - 被依赖：入口（路由、作业、`Base.Terminated`）。
 
 ## 易错点

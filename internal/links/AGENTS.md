@@ -5,7 +5,7 @@
 ## 负责与不负责
 
 - 负责：表 `account_link`；路由：某员工的关联、建立、结束、某账号的员工；事件 `mdm.employee.account_link.changed.v1`（主题是员工与账号）；`AdminWarning`（入口接成 `core.Base.AdminWarning`）。
-- 不负责：确认本身（授权组件保存与消耗）；离职（`employees`）；关联结束的意图证据（随 E3f）。
+- 不负责：确认本身（授权组件保存与消耗）；离职（`employees`）。
 
 ## 文件
 
@@ -15,7 +15,7 @@
 
 ## 依赖与被依赖
 
-- 依赖：`core`（含 `Base.Authz`：授权组件的 `AccountService`，入口用 `AUTHZ_GRPC_URL` 建）。
+- 依赖：`core`（含 `Base.Authz`：授权组件的 `AccountService`，入口用 `AUTHZ_GRPC_URL` 建）、`tightening`。
 - 被依赖：入口（路由、`Base.AdminWarning`）。
 
 ## 易错点

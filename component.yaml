@@ -58,6 +58,8 @@ configSchema:
     AUTHZ_GRPC_URL:
       description: 'process-level: the same for every member of a shell'
       type: string
+    BUS_SUBSCRIPTION_CONCURRENCY:
+      type: integer
     BUS_URL:
       description: 'process-level: the same for every member of a shell'
       secret: true

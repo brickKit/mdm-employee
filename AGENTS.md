@@ -19,11 +19,12 @@
 
 | 模块 | 负责 | 拥有的表 |
 | --- | --- | --- |
+| [`orgview`](internal/orgview/AGENTS.md) | `mdm/org` 的投影（法人、部门、岗位）：事件、对齐、修复；退役时排结束任职 | `org_realign`（投影本身在 SDK 的表里） |
 | [`source`](internal/source/AGENTS.md) | 水位流的记录读取（三种记录，按身份与按身份顺序） | — |
 
 共用的：[`core`](internal/core/AGENTS.md)（名字与资源定义、校验、审计与事件的写法、记录的类型与读取、列表的共用部分、本版不做的路由）。
 
-（骨架阶段：员工、任职、账号关联、`mdm/org` 的投影、收紧的证据与重放随 C1 的 E3b–E3f 加入，见装配项目 `dev/rebuild/c1-employee-plan.md`。）
+（员工、任职、账号关联、收紧的证据与重放随 C1 的 E3c–E3f 加入，见装配项目 `dev/rebuild/c1-employee-plan.md`。）
 
 ## 构建与测试
 

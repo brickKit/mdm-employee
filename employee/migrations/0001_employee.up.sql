@@ -63,3 +63,8 @@ CREATE TABLE account_link (
 );
 CREATE UNIQUE INDEX account_link_active ON account_link (account) WHERE state = 'active';
 CREATE INDEX account_link_employee ON account_link (employee_id);
+
+-- One queued alignment of the mdm/org projection at a time (internal/orgview: mdm/org's epoch changed).
+CREATE TABLE org_realign (
+    one boolean PRIMARY KEY DEFAULT true CHECK (one)
+);

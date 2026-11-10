@@ -1,21 +1,50 @@
 package employee
 
 import (
-	core "github.com/brickKit/mdm-employee/v3/internal/core"
+	"context"
+	"time"
 
+	core "github.com/brickKit/mdm-employee/v3/internal/core"
+	orgview "github.com/brickKit/mdm-employee/v3/internal/orgview"
+
+	"github.com/brickKit/be-sdk-go/v3/db"
+	"github.com/brickKit/be-sdk-go/v3/events"
 	"github.com/brickKit/be-sdk-go/v3/httpx"
 	"github.com/brickKit/be-sdk-go/v3/runtime"
+	"github.com/brickKit/be-sdk-go/v3/work"
 )
 
 // Module is the employee component as the launcher and the shells run it: it only assembles the business modules
 // under internal/ (their map is internal/AGENTS.md).
 type Module struct {
-	b *core.Base
+	b   *core.Base
+	org *orgview.View
 }
 
-// New builds the module.
+// New builds the module and this member's view of mdm/org.
 func New(rt *runtime.Runtime) (*Module, error) {
-	return &Module{b: &core.Base{RT: rt, Ev: rt.Evidence}}, nil
+	b := &core.Base{RT: rt, Ev: rt.Evidence}
+	v := orgview.New(b)
+	b.Org = v
+	return &Module{b: b, org: v}, nil
+}
+
+// Subscriptions declares the projection's input: every event of mdm/org's legal entities, units and positions.
+func (m *Module) Subscriptions(s *events.Subscriptions) error {
+	s.Add(events.Sub{Name: "org-events", Streams: []string{core.OrgStream}, Types: orgview.EventTypes,
+		Handle: func(ctx context.Context, tx db.Tx, e events.Received) error { return m.org.OnEvent(ctx, tx, e) }})
+	return nil
+}
+
+// Jobs declares the background work (protocol 01).
+func (m *Module) Jobs(j *work.Jobs) error {
+	j.Add(work.Job{Name: orgview.JobAlign, Kind: work.Singleton, Effect: work.Local, Interval: time.Hour,
+		MaxAttempts: work.Unlimited, Handle: m.org.Align})
+	j.Add(work.Job{Name: orgview.JobRepair, Kind: work.Queue, Effect: work.IdempotentExternal,
+		MaxAttempts: work.Unlimited, Handle: m.org.Repair})
+	j.Add(work.Job{Name: orgview.JobRealign, Kind: work.Queue, Effect: work.IdempotentExternal,
+		MaxAttempts: work.Unlimited, Handle: m.org.Realign})
+	return nil
 }
 
 // Routes registers the user surface (contract/openapi.yaml).

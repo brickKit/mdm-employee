@@ -17,6 +17,7 @@ require (
 	github.com/brickKit/be-protocol/v3 v3.0.0-alpha.117 // indirect
 	github.com/brickKit/contract-infra-authz/v3 v3.0.0-alpha.6 // indirect
 	github.com/brickKit/infra-audit/contract/v3 v3.0.0-alpha.2 // indirect
+	github.com/brickKit/mdm-org/contract/v3 v3.0.0-alpha.3 // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/bytedance/sonic v1.15.0 // indirect
 	github.com/bytedance/sonic/loader v0.5.0 // indirect

@@ -40,7 +40,7 @@ var Own = map[string]string{}
 
 // Definition is the component as the launcher and the shells take it.
 func Definition() component.Definition {
-	return component.Definition{ID: core.ID, Version: Version, Keys: Keys(), Migrations: migrations(), GRPCPort: GRPCPort,
+	return component.Definition{ID: core.ID, Version: Version, Keys: Keys(), Migrations: migrations(), GRPCPort: GRPCPort, Subscribes: true,
 		Streams: []events.Stream{{Name: core.Stream, Partitions: core.Partitions,
 			Watermark: &events.Watermark{Operation: core.OpPull, Pullers: []string{core.Authz}},
 			Records:   &events.Records{Operation: core.OpSystem, Readers: []string{core.Authz}, Read: source.Read, Page: source.Page}}},

@@ -6,10 +6,11 @@
 
 | 包 | 一句话 | 依赖（本组件内） |
 | --- | --- | --- |
+| `orgview` | `mdm/org` 的投影；实现 `core.OrgView` | `core` |
 | `source` | 水位流的记录读取 | `core` |
 | `core`（共用） | 名字与资源定义、校验、审计与事件、记录、列表的共用部分、`Base`、本版不做的路由 | — |
 
-分层（每个包只引用比它低的层）：`source` → `core`。
+分层（每个包只引用比它低的层）：`orgview`、`source` → `core`。别的模块经 `core.Base.Org`（接口 `core.OrgView`）用投影，不直接引用 `orgview`。
 
 ## 共同的写法
 

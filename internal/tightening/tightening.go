@@ -102,3 +102,37 @@ func LinkEnd(confirmation string) *Tightening[core.Link] {
 		Tightens: func(b, a core.Link) bool { return b.State == "active" && a.State == "ended" },
 	}
 }
+
+// ScheduledTermination: an active employee's termination registered for a later date. Nothing ends yet, but what
+// comes is narrowed: a full recovery to before the registration must not forget it, so it is recorded when registered;
+// a replay registers the date again and the effective-dates job carries it out when it comes (with its own record).
+// An earlier date than one registered narrows too; a later one or a withdrawal widens and writes none.
+func ScheduledTermination(date, today string) *Tightening[core.Employee] {
+	return &Tightening[core.Employee]{Type: EmployeeType,
+		Due: func(e core.Employee) bool {
+			return e.State == "active" && date > today && (e.TerminationDate == nil || *e.TerminationDate > date)
+		},
+		Change: func(core.Employee) map[string]any {
+			return map[string]any{"kind": "termination_scheduled", "termination_date": date}
+		},
+		Tightens: func(b, a core.Employee) bool {
+			return a.State == "active" && earlier(a.TerminationDate, b.TerminationDate)
+		},
+	}
+}
+
+// ScheduledEnd: an open appointment's last day set to a later date (recorded as ScheduledTermination is).
+func ScheduledEnd(last string) *Tightening[core.Appointment] {
+	return &Tightening[core.Appointment]{Type: AppointmentType,
+		Due: func(a core.Appointment) bool { return a.State != "ended" && (a.EndDate == nil || *a.EndDate > last) },
+		Change: func(core.Appointment) map[string]any {
+			return map[string]any{"kind": "appointment_end_scheduled", "end_date": last}
+		},
+		Tightens: func(b, a core.Appointment) bool { return a.State != "ended" && earlier(a.EndDate, b.EndDate) },
+	}
+}
+
+// earlier: a date set after where there was none or a later one.
+func earlier(after, before *string) bool {
+	return after != nil && (before == nil || *after < *before)
+}

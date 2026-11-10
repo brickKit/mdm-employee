@@ -98,6 +98,21 @@ func (fx *fixture) appointments() {
 		15*time.Second, 200*time.Millisecond, "bob reads the sales appointment")
 	code, _ = bob.do("GET", "/api/employee/appointments/"+clerk, nil)
 	assert.Equal(t, 404, code, "not in bob's subtree")
+	// a transfer is a change of both appointments: one who manages the sales subtree cannot move the operations
+	// appointment into sales (it would end an appointment outside their scope)
+	fx.w.Grant(sectest.Bob, sdkauthz.Segment{ResourceType: core.Appointments, Operation: core.OpApptEdit,
+		Atoms: map[string]sdkauthz.Atom{core.DimLegalEntity: {Kind: "all"},
+			core.DimDepartment: {Kind: "tree", Items: []sdkauthz.TreeItem{{Mode: "subtree", Path: fx.le + "/" + fx.sales}}}},
+		Valid: sdkauthz.Window{From: "2026-01-01T00:00:00Z"}})
+	require.Eventually(t, func() bool { // the grant reached the view: a stale note on a sales appointment is a conflict
+		c, _ := bob.do("PATCH", "/api/employee/appointments/"+rep["id"].(string), map[string]any{"version": 99, "note": "x"})
+		return c == 409
+	}, 15*time.Second, 200*time.Millisecond, "bob manages the sales appointments")
+	code, out := bob.do("POST", "/api/employee/employees/"+eva+"/transfer", map[string]any{
+		"from_appointment_id": clerk, "position_id": fx.head, "date": fx.madrid(0)})
+	assert.Contains(t, []int{403, 404}, code, "the old appointment is outside bob's scope: %v", out)
+	_, still := fx.alice.do("GET", "/api/employee/appointments/"+clerk, nil)
+	assert.Equal(t, "active", still["state"], "nothing changed")
 
 	// a unit moves (mdm/org's event): the open appointments' copied path follows
 	fx.change(orgv3.Aggregate_AGGREGATE_ORG_UNIT, core.UnitChanged, fx.unit(fx.ops, fx.le+"/"+fx.sales+"/"+fx.ops, "active", 5))

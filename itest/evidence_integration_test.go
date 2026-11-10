@@ -49,8 +49,9 @@ func (fx *fixture) awaitEvidence(id, phase string, n int) map[string][]map[strin
 
 // evidence (assembly protocol 15, be-protocol P12.15-P12.18): a termination, the end of an appointment and the end of
 // a link write their intent before the change and their conclusion in its transaction; one that does not take place
-// is cancelled; hires, appointments, links and a termination on a later date (nothing ends yet) write none; with the
-// evidence store down the change goes on and its conclusion waits locally.
+// is cancelled; hires, appointments and links write none; a termination on a later date and a later last day of an
+// appointment narrow what comes and are recorded when registered (termination_scheduled, appointment_end_scheduled);
+// with the evidence store down the change goes on and its conclusion waits locally.
 func (fx *fixture) evidence() {
 	t := fx.t
 	code, ivo := fx.alice.do("POST", "/api/employee/employees", map[string]any{"legal_entity_id": fx.le,
@@ -89,17 +90,37 @@ func (fx *fixture) evidence() {
 	assert.Equal(t, "ended", got["intent"][0]["change"].(map[string]any)["reason"])
 	assert.Equal(t, tightening.AppointmentType, got["intent"][0]["object"].(map[string]any)["type"])
 
-	// a termination on a later date: nothing ends yet, no record; refused (before the hire date): cancelled
+	// a termination on a later date: registered, recorded (a full recovery to before it must not forget it); its
+	// withdrawal widens and writes none; refused (before the hire date): cancelled
 	code, _ = fx.alice.do("POST", "/api/employee/employees/"+id+"/terminate", map[string]any{"termination_date": fx.madrid(30)})
 	require.Equal(t, 200, code)
-	assert.Empty(t, fx.evidenceOf(id)["intent"], "a later termination ends nothing yet")
+	got = fx.awaitEvidence(id, "effective", 1)
+	assert.Equal(t, "termination_scheduled", got["effective"][0]["change"].(map[string]any)["kind"])
+	assert.Equal(t, fx.madrid(30), got["effective"][0]["change"].(map[string]any)["termination_date"])
 	code, _ = fx.alice.do("POST", "/api/employee/employees/"+id+"/withdraw-termination", nil)
 	require.Equal(t, 200, code)
 	code, _ = fx.alice.do("POST", "/api/employee/employees/"+id+"/terminate", map[string]any{"termination_date": fx.madrid(-20)})
 	require.Equal(t, 400, code)
 	got = fx.awaitEvidence(id, "cancelled", 1)
-	assert.Len(t, got["intent"], 1)
-	assert.Empty(t, got["effective"])
+	assert.Len(t, got["intent"], 2)
+	assert.Len(t, got["effective"], 1, "the scheduled one only")
+
+	// Kai: a termination and an appointment's last day registered for later (the replay registers them again)
+	code, kai := fx.alice.do("POST", "/api/employee/employees", map[string]any{"legal_entity_id": fx.le,
+		"employee_no": "E0011", "name": "Kai Rubio", "hire_date": fx.madrid(-10)})
+	require.Equal(t, 200, code, kai)
+	code, kaiAppt := fx.alice.do("POST", "/api/employee/employees/"+kai["id"].(string)+"/appointments", map[string]any{
+		"position_id": fx.rep, "start_date": fx.madrid(-5)})
+	require.Equal(t, 200, code, kaiAppt)
+	code, _ = fx.alice.do("POST", "/api/employee/appointments/"+kaiAppt["id"].(string)+"/end", map[string]any{"end_date": fx.madrid(20)})
+	require.Equal(t, 200, code)
+	got = fx.awaitEvidence(kaiAppt["id"].(string), "effective", 1)
+	assert.Equal(t, "appointment_end_scheduled", got["effective"][0]["change"].(map[string]any)["kind"])
+	assert.Equal(t, fx.madrid(20), got["effective"][0]["change"].(map[string]any)["end_date"])
+	code, _ = fx.alice.do("POST", "/api/employee/employees/"+kai["id"].(string)+"/terminate", map[string]any{"termination_date": fx.madrid(30)})
+	require.Equal(t, 200, code)
+	fx.awaitEvidence(kai["id"].(string), "effective", 1)
+	fx.kai, fx.kaiAppt = kai["id"].(string), kaiAppt["id"].(string)
 
 	// the evidence store down: the termination goes on; its conclusion waits in the evidence outbox until it is back
 	fx.w.EvidenceDown(true)
@@ -110,9 +131,15 @@ func (fx *fixture) evidence() {
 	require.NoError(t, fx.admin.QueryRow(fx.ctx, "SELECT count(*) FROM "+itSchema+".be_evidence_outbox WHERE phase = 'effective'").Scan(&waiting))
 	assert.Positive(t, waiting, "the conclusion waits locally")
 	fx.w.EvidenceDown(false)
-	got = fx.awaitEvidence(id, "effective", 1)
-	assert.Equal(t, "termination", got["effective"][0]["change"].(map[string]any)["kind"])
-	assert.Equal(t, fx.madrid(0), got["effective"][0]["change"].(map[string]any)["termination_date"])
+	got = fx.awaitEvidence(id, "effective", 2)
+	var now map[string]any
+	for _, r := range got["effective"] {
+		if r["change"].(map[string]any)["kind"] == "termination" {
+			now = r["change"].(map[string]any)
+		}
+	}
+	require.NotNil(t, now, "the termination's conclusion")
+	assert.Equal(t, fx.madrid(0), now["termination_date"])
 	fx.ivo, fx.ivoLink = id, link["id"].(string)
 }
 
@@ -130,12 +157,13 @@ func (fx *fixture) replay() {
 		require.NoError(t, err)
 		return outcome
 	}
-	effective := func(object string) ([]byte, string) {
+	effective := func(object, kind string) ([]byte, string) {
 		t.Helper()
 		for k, v := range fx.w.Evidence() {
 			if strings.HasSuffix(k, "/effective") {
 				var r map[string]any
-				if json.Unmarshal(v, &r) == nil && r["object"].(map[string]any)["id"] == object {
+				if json.Unmarshal(v, &r) == nil && r["object"].(map[string]any)["id"] == object &&
+					r["change"].(map[string]any)["kind"] == kind {
 					return v, r["id"].(string)
 				}
 			}
@@ -149,7 +177,7 @@ func (fx *fixture) replay() {
 	}
 
 	// the termination: the employee back to active with an open appointment, as before it
-	raw, eid := effective(fx.ivo)
+	raw, eid := effective(fx.ivo, "termination")
 	code, appt := fx.alice.do("POST", "/api/employee/employees/"+fx.eva+"/appointments", map[string]any{"position_id": fx.head,
 		"start_date": fx.madrid(-1)}) // a fresh appointment to stand for one open at T
 	require.Equal(t, 200, code, appt)
@@ -166,7 +194,7 @@ func (fx *fixture) replay() {
 	assert.Equal(t, evidence.AlreadyReflected, replay(raw), "again: reflected")
 
 	// the end of a link: back to active
-	raw, eid = effective(fx.ivoLink)
+	raw, eid = effective(fx.ivoLink, "link_end")
 	_, err = fx.admin.Exec(ctx, "UPDATE "+itSchema+".account_link SET state = 'active', ended_at = NULL, end_confirmation = NULL WHERE id = $1", fx.ivoLink)
 	require.NoError(t, err)
 	forget(eid)
@@ -177,6 +205,25 @@ func (fx *fixture) replay() {
 	var audited int
 	require.NoError(t, fx.admin.QueryRow(ctx, "SELECT count(*) FROM "+itSchema+".be_audit_log WHERE actor::text LIKE '%ops/recover%'").Scan(&audited))
 	assert.Positive(t, audited, "audited with the recovery tool as the actor")
+
+	// a termination and a last day registered for later: forgotten by the restore, registered again; the job carries
+	// them out when they come due
+	rawT, eidT := effective(fx.kai, "termination_scheduled")
+	rawE, eidE := effective(fx.kaiAppt, "appointment_end_scheduled")
+	_, err = fx.admin.Exec(ctx, "UPDATE "+itSchema+".employee SET termination_date = NULL WHERE id = $1", fx.kai)
+	require.NoError(t, err)
+	_, err = fx.admin.Exec(ctx, "UPDATE "+itSchema+".appointment SET end_date = NULL WHERE id = $1", fx.kaiAppt)
+	require.NoError(t, err)
+	forget(eidT)
+	forget(eidE)
+	assert.Equal(t, evidence.Applied, replay(rawT))
+	assert.Equal(t, evidence.Applied, replay(rawE))
+	_, k := fx.alice.do("GET", "/api/employee/employees/"+fx.kai, nil)
+	assert.Equal(t, "active", k["state"], "registered, not carried out before its date")
+	assert.Equal(t, fx.madrid(30), k["termination_date"])
+	_, ka := fx.alice.do("GET", "/api/employee/appointments/"+fx.kaiAppt, nil)
+	assert.Equal(t, fx.madrid(20), ka["end_date"])
+	assert.Equal(t, "active", ka["state"])
 
 	// an object no longer there: dangling (for review)
 	missing, err := evidence.Seal(map[string]any{"record_type": evidence.RecordType, "schema": "1.0", "id": ids.New().String(),

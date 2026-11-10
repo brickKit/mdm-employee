@@ -133,6 +133,10 @@ func (fx *fixture) employees() {
 	require.NoError(t, err)
 	_, err = fx.admin.Exec(fx.ctx, "UPDATE "+itSchema+".employee SET termination_date = $2 WHERE id = $1", dan["id"], fx.madrid(0))
 	require.NoError(t, err)
+	// the date has come: no withdrawal any more, even before the job carries it out
+	code, late := fx.alice.do("POST", "/api/employee/employees/"+dan["id"].(string)+"/withdraw-termination", nil)
+	assert.Equal(t, 409, code, "%v", late)
+	assert.Equal(t, "STATE_CONFLICT", late["reason"])
 	fx.due("employee-effective")
 	require.Eventually(t, func() bool {
 		_, c := fx.alice.do("GET", "/api/employee/employees/"+cara["id"].(string), nil)

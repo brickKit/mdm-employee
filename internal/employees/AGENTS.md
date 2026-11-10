@@ -11,7 +11,7 @@
 
 | 文件 | 内容 |
 | --- | --- |
-| `employees.go` | `Hire`、`GetEmployee`、`UpdateEmployee`、`Terminate`、`WithdrawTermination`、`CancelHire`、`ListEmployees`、`Effective`；`Published`（事件与审计）、`write`、`change`、`read`、`answer`（遮蔽） |
+| `employees.go` | `Hire`、`GetEmployee`、`UpdateEmployee`、`Terminate`、`WithdrawTermination`、`CancelHire`、`ListEmployees`、`Effective`、`ReplayTermination`、`ReplayScheduledTermination`（离职到了那天就不能撤回）；`Published`（事件与审计）、`write`、`change`、`read`、`answer`（遮蔽） |
 
 ## 依赖与被依赖
 

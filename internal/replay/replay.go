@@ -28,6 +28,10 @@ func Replay(m *core.Base, ctx context.Context, tx db.Tx, rec evidence.Replayed) 
 	switch {
 	case rec.Object.Type == tightening.EmployeeType && kind == "termination":
 		return employees.ReplayTermination(m, ctx, tx, actor, rec.Object.ID, str("termination_date"))
+	case rec.Object.Type == tightening.EmployeeType && kind == "termination_scheduled":
+		return employees.ReplayScheduledTermination(m, ctx, tx, actor, rec.Object.ID, str("termination_date"))
+	case rec.Object.Type == tightening.AppointmentType && kind == "appointment_end_scheduled":
+		return appointments.ReplayScheduledEnd(m, ctx, tx, actor, rec.Object.ID, str("end_date"))
 	case rec.Object.Type == tightening.AppointmentType && kind == "appointment_end":
 		return appointments.ReplayEnd(m, ctx, tx, actor, rec.Object.ID, str("reason"), str("end_date"))
 	case rec.Object.Type == tightening.LinkType && kind == "link_end":

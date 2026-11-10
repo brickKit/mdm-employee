@@ -406,6 +406,9 @@ func Terminate(m *core.Base, c *httpx.Context) error {
 		}
 	}
 	tight := func(today string) *tightening.Tightening[core.Employee] {
+		if in.TerminationDate > today { // registered for later: recorded now (a restore must not forget it)
+			return tightening.ScheduledTermination(in.TerminationDate, today)
+		}
 		return tightening.Termination(in.TerminationDate, today)
 	}
 	return change(m, c, in.Version, tight, func(ctx context.Context, tx db.Tx, e *core.Employee, _ *core.Personal, today string) error {
@@ -440,9 +443,12 @@ func WithdrawTermination(m *core.Base, c *httpx.Context) error {
 	if err != nil {
 		return err
 	}
-	return change(m, c, v, nil, func(_ context.Context, _ db.Tx, e *core.Employee, _ *core.Personal, _ string) error {
+	return change(m, c, v, nil, func(_ context.Context, _ db.Tx, e *core.Employee, _ *core.Personal, today string) error {
 		if e.State != "active" || e.TerminationDate == nil {
 			return core.ErrState.New("no termination to withdraw")
+		}
+		if *e.TerminationDate <= today { // due: the job carries it out within a minute; it is a fact now
+			return core.ErrState.New("the termination's date has come: it is carried out, not withdrawn")
 		}
 		e.TerminationDate = nil
 		return nil
@@ -607,6 +613,28 @@ func effectiveIn(m *core.Base, ctx context.Context, le, today string) error {
 // ReplayTermination terminates the employee again as the evidence records it, after a full recovery (no business
 // precondition: it held when the termination was made), ending its open appointments as a termination does. Already
 // terminated: nothing to do. Not there: evidence.ErrDangling.
+// ReplayScheduledTermination registers a termination for a later date again, as the evidence records it, after a full
+// recovery: the effective-dates job carries it out when it comes. Not active any more, or an earlier date registered:
+// nothing to do. Not there: evidence.ErrDangling.
+func ReplayScheduledTermination(m *core.Base, ctx context.Context, tx db.Tx, actor, id, date string) error {
+	cur, err := core.GetEmployee(ctx, tx, id, true)
+	if errors.Is(err, core.ErrNone) {
+		return fmt.Errorf("employee %s: %w", id, evidence.ErrDangling)
+	}
+	if err != nil || cur.State != "active" || cur.TerminationDate != nil && *cur.TerminationDate <= date {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE employee SET termination_date = $2, version = version + 1, updated_at = now()
+		WHERE id = $1`, id, date); err != nil {
+		return err
+	}
+	out, err := core.GetEmployee(ctx, tx, id, false)
+	if err != nil {
+		return err
+	}
+	return Published(m, ctx, tx, actor, core.OpEmployeeEdit, out)
+}
+
 func ReplayTermination(m *core.Base, ctx context.Context, tx db.Tx, actor, id, date string) error {
 	cur, err := core.GetEmployee(ctx, tx, id, true)
 	if errors.Is(err, core.ErrNone) {

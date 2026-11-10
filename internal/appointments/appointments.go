@@ -226,7 +226,10 @@ type ending struct {
 }
 
 func intent(m *core.Base, ctx context.Context, before core.Appointment, reason, last string) *ending {
-	t := tightening.AppointmentEnd(reason, last)
+	return intentOf(m, ctx, before, tightening.AppointmentEnd(reason, last))
+}
+
+func intentOf(m *core.Base, ctx context.Context, before core.Appointment, t *tightening.Tightening[core.Appointment]) *ending {
 	return &ending{t: t, before: before, p: tightening.Intent(ctx, m.Ev, t, before.ID, before.Version, before)}
 }
 
@@ -352,8 +355,10 @@ func EndAppointment(m *core.Base, c *httpx.Context) error {
 		last = now
 	}
 	var ev *ending
-	if last <= now { // ends now: a tightening
+	if last <= now { // ends now
 		ev = intent(m, ctx, a, "ended", last)
+	} else { // a later last day: recorded now (a restore must not forget it)
+		ev = intentOf(m, ctx, a, tightening.ScheduledEnd(last))
 	}
 	out, err := change(m, ctx, a.ID, in.Version, func(tx db.Tx, cur core.Appointment) (core.Appointment, error) {
 		if cur.State == "ended" {
@@ -374,11 +379,12 @@ func EndAppointment(m *core.Base, c *httpx.Context) error {
 		if err != nil {
 			return next, err
 		}
+		if err := ev.conclude(ctx, tx, next); err != nil {
+			return next, err
+		}
 		return next, Published(m, ctx, tx, actor, next)
 	})
-	if ev != nil {
-		ev.settle(ctx, err)
-	}
+	ev.settle(ctx, err)
 	if err != nil {
 		return err
 	}
@@ -411,6 +417,15 @@ func Transfer(m *core.Base, c *httpx.Context) error {
 	if err != nil {
 		return err
 	}
+	// a transfer changes both appointments: the old one's department and the new one's are both checked (an admin of
+	// the new department alone would end an appointment outside their scope)
+	fromPath, err := pathOf(m, c.Ctx(), in.FromAppointmentID, emp.ID)
+	if err != nil {
+		return err
+	}
+	if _, _, err := admit(c, core.OpApptEdit, emp.LegalEntityID, fromPath); err != nil {
+		return err
+	}
 	ctx, actor, err := admit(c, core.OpApptEdit, emp.LegalEntityID, t.unit.Path)
 	if err != nil {
 		return err
@@ -441,6 +456,13 @@ func Transfer(m *core.Base, c *httpx.Context) error {
 		}
 		if from.State == "ended" {
 			return core.ErrState.New("the appointment to transfer from has ended")
+		}
+		var path string
+		if err := tx.QueryRow(ctx, `SELECT unit_path FROM appointment WHERE id = $1`, from.ID).Scan(&path); err != nil {
+			return err
+		}
+		if path != fromPath { // its unit moved since it was checked: ask again
+			return core.ErrVersion.New("the appointment's department moved since the request was checked")
 		}
 		if ended, err = end(m, ctx, tx, actor, from, dayBefore(in.Date), "transfer"); err != nil {
 			return err
@@ -684,6 +706,25 @@ func Effective(m *core.Base, ctx context.Context, _ *work.Run) error {
 	return errors.Join(all...)
 }
 
+// pathOf is the department path an employee's appointment was admitted under (its unit's path as copied); one that is
+// not the employee's is invalid. Read before the transaction, checked again under the lock (a unit that moved since
+// is a conflict: the caller asks again).
+func pathOf(m *core.Base, ctx context.Context, id, employee string) (string, error) {
+	var a core.Appointment
+	var path string
+	err := m.RT.DB.Tx(ctx, func(ctx context.Context, tx db.Tx) error {
+		var err error
+		if a, err = core.GetAppointment(ctx, tx, id, false); err != nil {
+			return err
+		}
+		return tx.QueryRow(ctx, `SELECT unit_path FROM appointment WHERE id = $1`, id).Scan(&path)
+	})
+	if errors.Is(err, core.ErrNone) || err == nil && a.EmployeeID != employee {
+		return "", core.Invalid("from_appointment_id", "not an appointment of this employee")
+	}
+	return path, err
+}
+
 // read reads an appointment in a transaction of its own (the state an intent is written from).
 func read(m *core.Base, ctx context.Context, id string) (core.Appointment, error) {
 	var a core.Appointment
@@ -697,6 +738,28 @@ func read(m *core.Base, ctx context.Context, id string) (core.Appointment, error
 
 // ReplayEnd ends the appointment again as the evidence records it (its reason and last day), after a full recovery.
 // Already ended: nothing to do. Not there: evidence.ErrDangling.
+// ReplayScheduledEnd sets an appointment's later last day again, as the evidence records it, after a full recovery:
+// the effective-dates job ends it when it comes. Ended, or an earlier last day set: nothing to do. Not there:
+// evidence.ErrDangling.
+func ReplayScheduledEnd(m *core.Base, ctx context.Context, tx db.Tx, actor, id, last string) error {
+	a, err := core.GetAppointment(ctx, tx, id, true)
+	if errors.Is(err, core.ErrNone) {
+		return fmt.Errorf("appointment %s: %w", id, evidence.ErrDangling)
+	}
+	if err != nil || a.State == "ended" || a.EndDate != nil && *a.EndDate <= last {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE appointment SET end_date = $2, version = version + 1, updated_at = now()
+		WHERE id = $1`, id, last); err != nil {
+		return err
+	}
+	next, err := core.GetAppointment(ctx, tx, id, false)
+	if err != nil {
+		return err
+	}
+	return Published(m, ctx, tx, actor, next)
+}
+
 func ReplayEnd(m *core.Base, ctx context.Context, tx db.Tx, actor, id, reason, last string) error {
 	a, err := core.GetAppointment(ctx, tx, id, true)
 	if errors.Is(err, core.ErrNone) {

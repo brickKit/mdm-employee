@@ -11,7 +11,7 @@
 
 | 文件 | 内容 |
 | --- | --- |
-| `appointments.go` | `Appoint`、`Transfer`、`GetAppointment`、`UpdateAppointment`、`EndAppointment`、`ListAppointments`、`Holders`；`Ended`、`EndOnRetirement`、`Effective`；`insert`（重叠检查）、`end`、`Published`、`todayOf`（事务外算法人的今天） |
+| `appointments.go` | `Appoint`、`Transfer`、`GetAppointment`、`UpdateAppointment`、`EndAppointment`、`ListAppointments`、`Holders`；`Ended`、`EndOnRetirement`、`Effective`、`ReplayEnd`、`ReplayScheduledEnd`；`insert`（重叠检查）、`end`、`pathOf`（调岗按原任职与新岗位两个部门检查）、`Published`、`todayOf`（事务外算法人的今天） |
 
 ## 依赖与被依赖
 

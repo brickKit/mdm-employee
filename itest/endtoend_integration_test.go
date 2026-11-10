@@ -63,6 +63,7 @@ type fixture struct {
 	le, sales, ops, rep, clerk, head string
 	// employees the steps pass on
 	ana, eva, gil, ivo, ivoLink string
+	kai, kaiAppt                string // E6: a termination and a last day registered for later
 }
 
 func TestEmployeeEndToEnd(t *testing.T) {

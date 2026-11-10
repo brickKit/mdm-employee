@@ -5,6 +5,7 @@ import (
 	"time"
 
 	core "github.com/brickKit/mdm-employee/v3/internal/core"
+	employees "github.com/brickKit/mdm-employee/v3/internal/employees"
 	orgview "github.com/brickKit/mdm-employee/v3/internal/orgview"
 
 	"github.com/brickKit/be-sdk-go/v3/db"
@@ -38,6 +39,8 @@ func (m *Module) Subscriptions(s *events.Subscriptions) error {
 
 // Jobs declares the background work (protocol 01).
 func (m *Module) Jobs(j *work.Jobs) error {
+	j.Add(work.Job{Name: employees.JobEffective, Kind: work.Singleton, Effect: work.Local, Interval: time.Minute,
+		MaxAttempts: work.Unlimited, Handle: m.job(employees.Effective)})
 	j.Add(work.Job{Name: orgview.JobAlign, Kind: work.Singleton, Effect: work.Local, Interval: time.Hour,
 		MaxAttempts: work.Unlimited, Handle: m.org.Align})
 	j.Add(work.Job{Name: orgview.JobRepair, Kind: work.Queue, Effect: work.IdempotentExternal,
@@ -52,14 +55,15 @@ func (m *Module) Routes(r *httpx.Routes) error {
 	add := func(method, path, op string, h httpx.Handler) {
 		r.Add(httpx.Route{Method: method, Path: path, Operation: op, Handle: h})
 	}
+	h := m.handler
+	add("GET", "/api/employee/employees", core.OpEmployeeRead, h(employees.ListEmployees))
+	add("POST", "/api/employee/employees", core.OpEmployeeEdit, h(employees.Hire))
+	add("GET", "/api/employee/employees/:id", core.OpEmployeeRead, h(employees.GetEmployee))
+	add("PATCH", "/api/employee/employees/:id", core.OpEmployeeEdit, h(employees.UpdateEmployee))
+	add("POST", "/api/employee/employees/:id/terminate", core.OpEmployeeEdit, h(employees.Terminate))
+	add("POST", "/api/employee/employees/:id/withdraw-termination", core.OpEmployeeEdit, h(employees.WithdrawTermination))
+	add("POST", "/api/employee/employees/:id/cancel-hire", core.OpEmployeeEdit, h(employees.CancelHire))
 	for _, u := range []struct{ method, path, op string }{
-		{"GET", "/api/employee/employees", core.OpEmployeeRead},
-		{"POST", "/api/employee/employees", core.OpEmployeeEdit},
-		{"GET", "/api/employee/employees/:id", core.OpEmployeeRead},
-		{"PATCH", "/api/employee/employees/:id", core.OpEmployeeEdit},
-		{"POST", "/api/employee/employees/:id/terminate", core.OpEmployeeEdit},
-		{"POST", "/api/employee/employees/:id/withdraw-termination", core.OpEmployeeEdit},
-		{"POST", "/api/employee/employees/:id/cancel-hire", core.OpEmployeeEdit},
 		{"GET", "/api/employee/employees/:id/appointments", core.OpApptRead},
 		{"POST", "/api/employee/employees/:id/appointments", core.OpApptEdit},
 		{"POST", "/api/employee/employees/:id/transfer", core.OpApptEdit},
@@ -84,4 +88,8 @@ func (m *Module) Routes(r *httpx.Routes) error {
 // handler adapts a module's handler, which takes the shared base first, to what the SDK registers.
 func (m *Module) handler(f func(*core.Base, *httpx.Context) error) httpx.Handler {
 	return func(c *httpx.Context) error { return f(m.b, c) }
+}
+
+func (m *Module) job(f func(*core.Base, context.Context, *work.Run) error) func(context.Context, *work.Run) error {
+	return func(ctx context.Context, r *work.Run) error { return f(m.b, ctx, r) }
 }

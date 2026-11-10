@@ -109,3 +109,19 @@ func Eq(c *httpx.Context, fields ...string) []list.Filter {
 	}
 	return out
 }
+
+// Principal is the acting user's principal in an admitted request's context.
+func Principal(ctx context.Context) string {
+	u, _ := identity.UserFrom(ctx)
+	return u.Subject
+}
+
+// ResourceOf is one of the component's resource definitions (for masking an output, P8.31).
+func ResourceOf(typ string) *sdkauthz.Resource {
+	for _, r := range Definitions().Resources {
+		if r.Type == typ {
+			return &r
+		}
+	}
+	return nil
+}

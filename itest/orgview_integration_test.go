@@ -57,10 +57,7 @@ func (fx *fixture) orgProjection() {
 	}, "the unknown action repaired")
 
 	// the alignment takes what no event brought (the stand-in's records that were never published)
-	require.Eventually(t, func() bool {
-		tag, err := fx.admin.Exec(fx.ctx, "UPDATE "+itSchema+".be_work_item SET run_at = now() WHERE id = 'align-org' AND state = 'pending'")
-		return err == nil && tag.RowsAffected() == 1
-	}, 10*time.Second, 100*time.Millisecond, "the singleton align-org made due now")
+	fx.due("align-org")
 	eventually("org_units", fx.ops, complete, "the unit no event brought, aligned")
 	eventually("org_positions", fx.head, complete, "the position no event brought, aligned")
 	state, data := fx.projected("org_units", fx.ops)

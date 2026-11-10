@@ -61,11 +61,14 @@ type fixture struct {
 	alice client
 	// mdm/org's world: a legal entity in Madrid with two units and their positions, created by start
 	le, sales, ops, rep, clerk, head string
+	// employees the steps pass on
+	ana string
 }
 
 func TestEmployeeEndToEnd(t *testing.T) {
 	fx := start(t)
 	fx.orgProjection()
+	fx.employees()
 }
 
 // start makes the world, the mdm/org stand-in and its stream, then migrates and runs the member.
@@ -194,6 +197,33 @@ func (fx *fixture) projected(projection, id string) (string, map[string]any) {
 	var data map[string]any
 	_ = json.Unmarshal(raw, &data)
 	return state, data
+}
+
+// due makes a singleton job due now (its work item's ID is the job's name).
+func (fx *fixture) due(job string) {
+	fx.t.Helper()
+	require.Eventually(fx.t, func() bool {
+		tag, err := fx.admin.Exec(fx.ctx, "UPDATE "+itSchema+".be_work_item SET run_at = now() WHERE id = $1 AND state = 'pending'", job)
+		return err == nil && tag.RowsAffected() == 1
+	}, 10*time.Second, 100*time.Millisecond, "the singleton %s made due now", job)
+}
+
+// at reads a value along a path of keys and indexes from a decoded JSON object.
+func at(v any, path ...any) any {
+	for _, p := range path {
+		switch k := p.(type) {
+		case string:
+			m, _ := v.(map[string]any)
+			v = m[k]
+		case int:
+			a, _ := v.([]any)
+			if k >= len(a) {
+				return nil
+			}
+			v = a[k]
+		}
+	}
+	return v
 }
 
 type client struct {

@@ -12,7 +12,9 @@
 //   - account links (protected: the seed user asks, the authorization admin confirms, security 08 row 21):
 //     test.sales.cn to the first SALES-EAST-SMB representative, test.sales.multi to one with appointments in
 //     SALES-EAST-KA and SALES-SOUTH-KA too, test.sales.es to the first ES01 SALES-NORTH-KA representative,
-//     test.unit.admin.cn to the CN01 head of SALES,
+//     test.unit.admin.cn to the CN01 head of SALES, test.buyer.lead to the CN01 head of purchasing (PUR-MGR: it approves
+//     CN01's requisitions and orders, erp/purchase's seed) and test.finance.lead to the CN01 head of finance (FIN-MGR: it
+//     approves CN01's payments, erp/payment's seed),
 //     test.mdm.admin and test.mdm.viewer both to one CN01 employee (one person, two accounts); test.revoked's link
 //     ended. test.nobody has none.
 //
@@ -142,7 +144,7 @@ func access(base, authzBase string) (client, client, map[string]seed.Account) {
 	}
 	iam, admin, user := env("SEED_IAM_URL", "http://localhost:18200"), env("SEED_ADMIN", "test.alice"), env("SEED_USER", "test.bob")
 	accounts, err := seed.Accounts(iam, pw, admin, user, "test.mdm.admin", "test.mdm.viewer", "test.sales.cn", "test.sales.multi",
-		"test.sales.es", "test.unit.admin.cn", "test.revoked")
+		"test.sales.es", "test.unit.admin.cn", "test.revoked", "test.buyer.lead", "test.finance.lead")
 	check(err)
 	a, err := seed.NewAuthz(authzBase, accounts[admin].Token, "mdm/employee")
 	check(err)
@@ -325,6 +327,8 @@ func main() {
 	link("test.sales.multi", multi)
 	link("test.sales.es", holderOf["ES01/SALES-NORTH-KA-REP"])
 	link("test.unit.admin.cn", holderOf["CN01/SALES-MGR"]) // the head of sales
+	link("test.buyer.lead", holderOf["CN01/PUR-MGR"])      // the approvers by position (C7)
+	link("test.finance.lead", holderOf["CN01/FIN-MGR"])
 	link("test.mdm.admin", "CN01-E0150")
 	link("test.mdm.viewer", "CN01-E0150")                                // one person, two accounts
 	if l := link("test.revoked", "CN01-E0151"); l["state"] == "active" { // a link that ended

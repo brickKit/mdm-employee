@@ -4,13 +4,13 @@ kind: Component
 metadata:
   id: mdm/employee
   name: Employee
-  version: 3.0.5
+  version: 3.0.6
   description: "Employees, their appointments (legal entity, unit, position, dates) and the links of accounts to employees; a watermark source for authorization (protocol 02), the link a protected operation (security 08)"
   repository: https://github.com/brickKit/mdm-employee
 
 dependencies:
   components:
-    - mdm/org@3.0.36
+    - mdm/org@3.0.37
 
 events:
   publishes:

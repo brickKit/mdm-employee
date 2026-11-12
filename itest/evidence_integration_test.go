@@ -270,8 +270,11 @@ func (fx *fixture) source() {
 	require.NoError(t, fx.admin.QueryRow(ctx, "SELECT (SELECT count(*) FROM "+itSchema+".employee) + (SELECT count(*) FROM "+itSchema+
 		".appointment) + (SELECT count(*) FROM "+itSchema+".account_link)").Scan(&rows))
 	assert.Equal(t, rows, all, "the snapshot gives every record of the three kinds")
-	_, _, err = projection.RecordClient{Conn: dial(core.Org), Stream: core.Stream}.Read(ctx, []string{fx.ivo})
-	assert.Equal(t, codes.PermissionDenied, status.Code(err), "not a reader: %v", err)
+	// any component's service identity reads and pulls (3.0.5: the flow kernel in the business components resolves
+	// position holders from this stream, be-protocol P17.8)
+	got, _, err := projection.RecordClient{Conn: dial(core.Org), Stream: core.Stream}.Read(ctx, []string{fx.ivo})
+	require.NoError(t, err, "every component is a reader")
+	assert.Len(t, got, 1)
 }
 
 // recoveryChecks: a full recovery's checks (be-protocol chapter 14): the recovery tool only; the audit of a change

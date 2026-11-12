@@ -36,7 +36,7 @@
 ## 契约索引
 
 - **用户面**：`contract/openapi.yaml`。操作 `mdm.employee.read`、`.manage`，`mdm.employee.appointment.read`、`.manage`，`mdm.employee.account_link.read`、`.manage`。
-- **系统面**：SDK 的标准服务：水位补取 `be.source.v1.WatermarkService/Pull`（只许 `infra/authz`，操作 `mdm.employee.system.pull`）、记录读取 `be.source.v1.RecordService`（`mdm.employee.system.read`）、补发、恢复核对、证据重放。
+- **系统面**：SDK 的标准服务：水位补取 `be.source.v1.WatermarkService/Pull`（任何组件：授权组件，与用 SDK 流程内核按岗位分配审批人的业务组件；操作 `mdm.employee.system.pull`）、记录读取 `be.source.v1.RecordService`（任何组件，`mdm.employee.system.read`）、补发、恢复核对、证据重放。
 - **事件**（流 `mdm.employee`，schema 在 `contract/events/`）：`mdm.employee.changed.v1`、`mdm.employee.appointment.changed.v1`、`mdm.employee.account_link.changed.v1`，都是完整状态。
 
 ## 外壳声明

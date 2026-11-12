@@ -7,6 +7,7 @@ package employee
 
 import (
 	"embed"
+	"github.com/brickKit/be-sdk-go/v3/grpcx"
 	"io/fs"
 
 	core "github.com/brickKit/mdm-employee/v3/internal/core"
@@ -20,7 +21,7 @@ import (
 
 // Identity of the component.
 const (
-	Version  = "3.0.4"
+	Version  = "3.0.5"
 	GRPCPort = 9227
 )
 
@@ -42,8 +43,11 @@ var Own = map[string]string{}
 func Definition() component.Definition {
 	return component.Definition{ID: core.ID, Version: Version, Keys: Keys(), Migrations: migrations(), GRPCPort: GRPCPort, Subscribes: true,
 		Streams: []events.Stream{{Name: core.Stream, Partitions: core.Partitions,
-			Watermark: &events.Watermark{Operation: core.OpPull, Pullers: []string{core.Authz}},
-			Records:   &events.Records{Operation: core.OpSystem, Readers: []string{core.Authz}, Read: source.Read, Page: source.Page}}},
+			// every component may pull and read (3.0.5): the authorization member, and the flow kernel of the business
+			// components that resolve position holders (be-protocol P17.8); a service identity and the operation still
+			// gate it, and the stream has no restricted personal data
+			Watermark: &events.Watermark{Operation: core.OpPull, Pullers: []string{grpcx.AnyComponent}},
+			Records:   &events.Records{Operation: core.OpSystem, Readers: []string{grpcx.AnyComponent}, Read: source.Read, Page: source.Page}}},
 		Authz: core.Definitions(), Resend: core.OpResend, Recovery: core.OpRecover, Replay: core.OpReplay, Evidence: true,
 		New: func(rt *runtime.Runtime) (component.Module, error) { return New(rt) }}
 }
